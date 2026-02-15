@@ -1,2 +1,9 @@
 node_modules/
 dist/
+.env
+.env.production
+.env.local
+.env.build
+public/assets/
+assets/
+supabase/.temp/

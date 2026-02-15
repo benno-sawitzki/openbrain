@@ -1,14 +1,19 @@
 {
-  "name": "marketing-hq",
-  "version": "0.1.0",
-  "description": "Unified marketing dashboard — The Unix of Marketing",
-  "bin": { "marketing-hq": "dist/server.js" },
+  "name": "open-brain",
+  "version": "0.2.0",
+  "description": "Open Brain — See what your Open Claw is doing",
+  "bin": {
+    "open-brain": "dist/server.js"
+  },
   "scripts": {
     "build": "tsc",
+    "build:client": "cd client && npx vite build",
+    "build:all": "tsc && cd client && npx vite build",
     "start": "node dist/server.js",
     "dev": "node dist/server.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.95.3",
     "express": "^4.21.0",
     "js-yaml": "^4.1.0"
   },
