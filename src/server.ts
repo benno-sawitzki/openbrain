@@ -94,6 +94,61 @@ app.get('/api/config', (_req, res) => {
   });
 });
 
+// Inbox media files
+app.use('/inbox', express.static(path.join(DATA_DIR, '.contentq', 'inbox')));
+
+app.get('/api/inbox', (_req, res) => {
+  res.json(readJSON(p('.contentq', 'inbox.json')) || []);
+});
+
+let agentsCache: { data: any; ts: number } = { data: null, ts: 0 };
+
+app.get('/api/agents', (_req, res) => {
+  const now = Date.now();
+  if (agentsCache.data && now - agentsCache.ts < 30000) {
+    return res.json(agentsCache.data);
+  }
+
+  const antfarmCli = path.join(os.homedir(), '.openclaw', 'workspace', 'antfarm', 'dist', 'cli', 'cli.js');
+  if (!fs.existsSync(antfarmCli)) {
+    const data = { available: false, workflows: [], logs: [] };
+    agentsCache = { data, ts: now };
+    return res.json(data);
+  }
+
+  exec(`node "${antfarmCli}" logs 2>/dev/null`, (err, logsOut) => {
+    exec(`node "${antfarmCli}" workflow status 2>/dev/null`, (err2, statusOut) => {
+      const data = {
+        available: true,
+        logs: logsOut?.trim() || '',
+        status: statusOut?.trim() || '',
+        workflows: parseWorkflows(statusOut || ''),
+      };
+      agentsCache = { data, ts: now };
+      res.json(data);
+    });
+  });
+});
+
+function parseWorkflows(output: string): any[] {
+  if (!output.trim()) return [];
+  const workflows: any[] = [];
+  const lines = output.trim().split('\n');
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      workflows.push(parsed);
+    } catch {
+      // Try to parse structured text output
+      const match = line.match(/(\w+)\s+(\w+)\s+(.+)/);
+      if (match) {
+        workflows.push({ id: match[1], status: match[2], task: match[3] });
+      }
+    }
+  }
+  return workflows;
+}
+
 // Static
 app.use(express.static(path.join(__dirname, '..', 'public')));
 

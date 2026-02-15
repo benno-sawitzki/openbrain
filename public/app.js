@@ -1,5 +1,5 @@
 // State
-let state = { tasks: [], leads: [], content: [], activity: {}, stats: {}, config: {} };
+let state = { tasks: [], leads: [], content: [], activity: {}, stats: {}, config: {}, inbox: [], agents: {} };
 
 // Tab switching
 document.querySelectorAll('.tab').forEach(btn => {
@@ -13,23 +13,29 @@ document.querySelectorAll('.tab').forEach(btn => {
 
 // Fetch all data
 async function fetchAll() {
-  const [tasks, leads, content, activity, stats, config] = await Promise.all([
+  const [tasks, leads, content, activity, stats, config, inbox, agents] = await Promise.all([
     fetch('/api/tasks').then(r => r.json()),
     fetch('/api/leads').then(r => r.json()),
     fetch('/api/content').then(r => r.json()),
     fetch('/api/activity').then(r => r.json()),
     fetch('/api/stats').then(r => r.json()),
     fetch('/api/config').then(r => r.json()),
+    fetch('/api/inbox').then(r => r.json()),
+    fetch('/api/agents').then(r => r.json()),
   ]);
-  state = { tasks, leads, content, activity, stats, config };
+  state = { tasks, leads, content, activity, stats, config, inbox, agents };
   render();
 }
 
 // Render all tabs
+let inboxFilter = 'all';
+
 function render() {
   renderDashboard();
   renderPipeline();
   renderContent();
+  renderInbox();
+  renderAgents();
   renderActivity();
 }
 
@@ -137,6 +143,7 @@ function renderDashboard() {
         `).join('')}
       </div>
     </div>
+    ${renderDashboardInbox()}
     ${s.stakeRisk > 0 ? `
       <div class="stakes-bar">⚠️ €${s.stakeRisk.toLocaleString()} at risk — ${s.overdueStakes} task${s.overdueStakes !== 1 ? 's' : ''} overdue</div>
     ` : ''}
