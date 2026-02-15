@@ -126,6 +126,8 @@ export class GatewayClient {
   async sessionsList(): Promise<any> { return this.rpc('sessions.list'); }
   async agentsList(): Promise<any> { return this.rpc('agents.list'); }
   async skillsStatus(): Promise<any> { return this.rpc('skills.status'); }
+  async cronCreate(job: any): Promise<any> { return this.rpc('cron.create', { job }); }
+  async cronDelete(jobId: string): Promise<any> { return this.rpc('cron.delete', { id: jobId }); }
 
   // --- Internal ---
 

@@ -145,3 +145,33 @@ export const fetchGatewayHealth = (): Promise<any> =>
 
 export const fetchGatewaySkills = (): Promise<any> =>
   apiFetch('/api/gateway/skills').then(json);
+
+// --- Workflow API ---
+export const fetchWorkflowDefs = (): Promise<any[]> =>
+  apiFetch('/api/wf/definitions').then(json);
+
+export const fetchWorkflowRuns = (filter?: { workflowId?: string; status?: string }): Promise<any[]> => {
+  const params = new URLSearchParams();
+  if (filter?.workflowId) params.set('workflowId', filter.workflowId);
+  if (filter?.status) params.set('status', filter.status);
+  const qs = params.toString();
+  return apiFetch(`/api/wf/runs${qs ? '?' + qs : ''}`).then(json);
+};
+
+export const fetchWorkflowRun = (id: string): Promise<any> =>
+  apiFetch(`/api/wf/runs/${encodeURIComponent(id)}`).then(json);
+
+export const createWorkflowDef = (body: any): Promise<any> =>
+  apiFetch('/api/wf/definitions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json);
+
+export const startWorkflowRun = (workflowId: string, task: string): Promise<any> =>
+  apiFetch('/api/wf/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workflowId, task }) }).then(json);
+
+export const resumeWorkflowRun = (id: string): Promise<any> =>
+  apiFetch(`/api/wf/runs/${encodeURIComponent(id)}/resume`, { method: 'POST' }).then(json);
+
+export const pauseWorkflowRun = (id: string): Promise<any> =>
+  apiFetch(`/api/wf/runs/${encodeURIComponent(id)}/pause`, { method: 'POST' }).then(json);
+
+export const cancelWorkflowRun = (id: string): Promise<any> =>
+  apiFetch(`/api/wf/runs/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json);
