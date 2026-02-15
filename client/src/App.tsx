@@ -100,7 +100,7 @@ export default function App() {
             if (!err) refresh();
             return err;
           }}
-          onSignOut={auth.signOut}
+          onSignOut={() => { setShowLogin(false); auth.signOut(); }}
           email={auth.user.email}
         />
       );
@@ -193,7 +193,7 @@ export default function App() {
           {/* External links (local mode) / Sign out (cloud mode) */}
           <div className="hidden lg:flex items-center gap-1 border-l border-border/50 pl-3 ml-2">
             {auth.isCloudMode ? (
-              <button onClick={auth.signOut}
+              <button onClick={() => { setShowLogin(false); auth.signOut(); }}
                 className="px-2 py-1 rounded-md text-[11px] text-muted-foreground/70 hover:text-muted-foreground hover:bg-white/[0.03] transition-all">
                 Sign out
               </button>
