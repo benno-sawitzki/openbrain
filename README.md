@@ -11,6 +11,8 @@ A single dark-mode web dashboard that reads data from [taskpipe](https://github.
 - 📋 **Dashboard** — Stats, today's tasks, pipeline overview, content queue
 - 🎯 **Pipeline** — Full kanban board for leads (cold → won)
 - 📝 **Content** — Content queue with status tracking
+- 📥 **Inbox** — Media inbox with thumbnails, filters by type
+- 🐜 **Agents** — Antfarm multi-agent workflow status
 - 📊 **Activity** — Daily activity charts, completion patterns
 - 🌙 Dark mode, responsive, auto-refreshes every 30s
 - Zero dependencies on frontend frameworks — pure HTML/CSS/JS
@@ -39,7 +41,7 @@ The data directory should contain `.taskpipe/`, `.leadpipe/`, and `.contentq/` s
 - Express server reading JSON/YAML files directly
 - No database, no build step for frontend
 - Static HTML + CSS + vanilla JS
-- API endpoints: `/api/tasks`, `/api/leads`, `/api/content`, `/api/activity`, `/api/stats`, `/api/config`
+- API endpoints: `/api/tasks`, `/api/leads`, `/api/content`, `/api/inbox`, `/api/agents`, `/api/activity`, `/api/stats`, `/api/config`
 
 ## Part of the Unix of Marketing
 

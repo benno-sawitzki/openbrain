@@ -265,3 +265,90 @@ main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
   font-size: .8125rem;
 }
 .content-preview-text { color: var(--muted); font-size: .75rem; margin-top: .25rem; }
+
+/* Inbox */
+.inbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: .75rem;
+}
+.inbox-card {
+  background: rgba(255,255,255,.03);
+  border-radius: .5rem;
+  padding: .75rem;
+  position: relative;
+  font-size: .8125rem;
+}
+.inbox-type-badge {
+  position: absolute;
+  top: .5rem;
+  right: .5rem;
+  font-size: .875rem;
+}
+.inbox-thumb {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  border-radius: .375rem;
+  margin-bottom: .5rem;
+}
+.inbox-card-text { font-weight: 500; }
+.inbox-card-meta { font-size: .7rem; color: var(--muted); margin-top: .25rem; }
+
+.inbox-filters {
+  display: flex;
+  gap: .5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+.inbox-filter-btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: .4rem .75rem;
+  border-radius: .5rem;
+  cursor: pointer;
+  font-size: .8125rem;
+  transition: all .2s;
+}
+.inbox-filter-btn:hover { color: var(--text); border-color: var(--accent); }
+.inbox-filter-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,255,0,.05); }
+
+.inbox-full-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1rem;
+}
+.inbox-full-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: .75rem;
+  padding: 1rem;
+  position: relative;
+  cursor: pointer;
+  transition: border-color .2s;
+}
+.inbox-full-card:hover { border-color: var(--accent); }
+.inbox-thumb-lg {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  border-radius: .5rem;
+  margin-bottom: .75rem;
+}
+.inbox-card-title { font-weight: 600; font-size: .875rem; }
+.inbox-card-note { font-size: .8125rem; color: var(--muted); margin-top: .25rem; }
+.inbox-detail { display: none; margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--border); font-size: .8125rem; }
+.inbox-full-card.expanded .inbox-detail { display: block; }
+
+/* Agents */
+.agent-card {
+  padding: .75rem;
+  background: rgba(255,255,255,.03);
+  border-radius: .5rem;
+  margin-bottom: .5rem;
+}
+.agent-name { font-weight: 600; font-size: .875rem; }
+.agent-status { font-size: .8125rem; margin-top: .25rem; }
+.agent-task { font-size: .8125rem; color: var(--muted); margin-top: .25rem; }
+.agent-meta { font-size: .75rem; color: var(--muted); }

@@ -284,6 +284,117 @@ function renderActivity() {
   `;
 }
 
+const INBOX_TYPE_EMOJI = { social: '📱', inspo: '💡', idea: '💭', general: '📥' };
+
+function inboxPreview(item) {
+  return item.title || item.note || item.text || item.url || '(empty)';
+}
+
+function renderDashboardInbox() {
+  const items = (state.inbox || []).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6);
+  if (!items.length) return '';
+  const counts = { social: 0, inspo: 0, idea: 0, general: 0 };
+  (state.inbox || []).forEach(i => { counts[i.type] = (counts[i.type] || 0) + 1; });
+  const total = state.inbox?.length || 0;
+  return `
+    <div class="panel" style="margin-top:1.5rem;grid-column:1/-1">
+      <div class="panel-title">📥 Inbox <span style="font-weight:400;text-transform:none">${total} items (${counts.social} social, ${counts.inspo} inspo, ${counts.idea} ideas)</span></div>
+      <div class="inbox-grid">
+        ${items.map(i => `
+          <div class="inbox-card">
+            <span class="inbox-type-badge">${INBOX_TYPE_EMOJI[i.type] || '📥'}</span>
+            ${i.media && i.mediaType?.startsWith('image/') ? `<img class="inbox-thumb" src="/${i.media}" alt="">` : ''}
+            <div class="inbox-card-text">${esc(inboxPreview(i).slice(0, 80))}</div>
+            <div class="inbox-card-meta">${i.createdAt?.slice(0, 10) || ''}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderInbox() {
+  const el = document.getElementById('inbox');
+  const items = (state.inbox || []).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const filtered = inboxFilter === 'all' ? items : items.filter(i => i.type === inboxFilter);
+
+  el.innerHTML = `
+    <div class="inbox-filters">
+      ${['all', 'social', 'inspo', 'idea', 'general'].map(f => `
+        <button class="inbox-filter-btn ${inboxFilter === f ? 'active' : ''}" onclick="inboxFilter='${f}';renderInbox()">
+          ${f === 'all' ? 'All' : (INBOX_TYPE_EMOJI[f] || '') + ' ' + f.charAt(0).toUpperCase() + f.slice(1)}
+        </button>
+      `).join('')}
+    </div>
+    ${filtered.length ? `
+      <div class="inbox-full-grid">
+        ${filtered.map(i => `
+          <div class="inbox-full-card" onclick="this.classList.toggle('expanded')">
+            <span class="inbox-type-badge">${INBOX_TYPE_EMOJI[i.type] || '📥'}</span>
+            ${i.media && i.mediaType?.startsWith('image/') ? `<img class="inbox-thumb-lg" src="/${i.media}" alt="">` : ''}
+            <div class="inbox-card-title">${esc(inboxPreview(i))}</div>
+            ${i.note ? `<div class="inbox-card-note">${esc(i.note)}</div>` : ''}
+            <div class="inbox-card-meta">${i.createdAt?.slice(0, 10) || ''} ${i.tags?.length ? '· ' + i.tags.join(', ') : ''} ${i.promoted ? '<span class="badge badge-published">promoted</span>' : ''}</div>
+            <div class="inbox-detail">
+              ${i.text ? `<div style="margin-top:.5rem;white-space:pre-wrap">${esc(i.text)}</div>` : ''}
+              ${i.url ? `<div>🔗 <a href="${esc(i.url)}" target="_blank" style="color:var(--accent)">${esc(i.url)}</a></div>` : ''}
+              ${i.media ? `<div>📎 ${esc(i.media)}</div>` : ''}
+              <div style="margin-top:.5rem;font-size:.7rem;color:var(--muted)">ID: ${i.id} · Source: ${i.source}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : '<div style="color:var(--muted);text-align:center;padding:3rem">No inbox items</div>'}
+  `;
+}
+
+function renderAgents() {
+  const el = document.getElementById('agents');
+  const agents = state.agents || {};
+
+  if (!agents.available) {
+    el.innerHTML = `
+      <div class="panel" style="text-align:center;padding:3rem">
+        <div style="font-size:2rem;margin-bottom:1rem">🐜</div>
+        <div style="font-size:1.1rem;font-weight:600;margin-bottom:.5rem">Antfarm Not Configured</div>
+        <div style="color:var(--muted)">Set up Antfarm to enable multi-agent workflows</div>
+      </div>
+    `;
+    return;
+  }
+
+  const statusBadge = s => {
+    const map = { running: '🟢', waiting: '🟡', idle: '⚪', completed: '✅', failed: '🔴' };
+    return (map[s] || '⚪') + ' ' + (s || 'unknown');
+  };
+
+  const workflows = agents.workflows || [];
+
+  el.innerHTML = `
+    <div class="panel" style="margin-bottom:1rem">
+      <div style="color:var(--accent);font-weight:600">✅ Antfarm Connected</div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Workflows</div>
+      ${workflows.length ? workflows.map(w => `
+        <div class="agent-card">
+          <div class="agent-name">${esc(w.name || w.id || 'Workflow')}</div>
+          <div class="agent-status">${statusBadge(w.status)}</div>
+          ${w.task ? `<div class="agent-task">${esc(w.task)}</div>` : ''}
+          ${w.step ? `<div class="agent-meta">Step: ${esc(w.step)}</div>` : ''}
+          ${w.startedAt ? `<div class="agent-meta">Started: ${w.startedAt}</div>` : ''}
+        </div>
+      `).join('') : '<div style="color:var(--muted)">No active workflows</div>'}
+    </div>
+    ${agents.logs ? `
+      <div class="panel" style="margin-top:1rem">
+        <div class="panel-title">Recent Logs</div>
+        <pre style="font-size:.75rem;color:var(--muted);white-space:pre-wrap;max-height:300px;overflow-y:auto">${esc(agents.logs)}</pre>
+      </div>
+    ` : ''}
+  `;
+}
+
 // Init
 fetchAll();
 setInterval(fetchAll, 30000);
