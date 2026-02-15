@@ -342,10 +342,10 @@ main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
 .inbox-full-card.expanded .inbox-detail { display: block; }
 
 /* Drag and Drop */
-.lead-card[draggable] { cursor: grab; transition: opacity .2s, transform .2s, background .2s; }
-.lead-card[draggable]:active { cursor: grabbing; }
-.lead-card.dragging { opacity: 0.4; transform: rotate(2deg); }
-.pipeline-column.drag-over { border: 2px dashed var(--accent); background: rgba(0,255,0,.04); }
+.lead-card[draggable], .task-card[draggable] { cursor: grab; transition: opacity .2s, transform .2s, background .2s; }
+.lead-card[draggable]:active, .task-card[draggable]:active { cursor: grabbing; }
+.lead-card.dragging, .task-card.dragging { opacity: 0.4; transform: rotate(2deg); }
+.pipeline-column.drag-over, .task-column.drag-over { border: 2px dashed var(--accent); background: rgba(0,255,0,.04); }
 .lead-card.drop-success { animation: dropFlash .5s ease; }
 @keyframes dropFlash {
   0% { background: rgba(0,255,0,.25); }

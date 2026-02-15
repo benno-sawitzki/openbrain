@@ -149,8 +149,31 @@ function parseWorkflows(output: string): any[] {
   return workflows;
 }
 
-// Move lead to new stage
+// Move task to new status
 app.use(express.json());
+
+app.post('/api/tasks/:id/move', (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  if (!status) return res.status(400).json({ error: 'status required' });
+
+  const tasksPath = p('.taskpipe', 'tasks.json');
+  const tasks = readJSON(tasksPath);
+  if (!tasks) return res.status(500).json({ error: 'could not read tasks' });
+
+  const task = tasks.find((t: any) =>
+    id.length < 36 ? t.id.startsWith(id) : t.id === id
+  );
+  if (!task) return res.status(404).json({ error: 'task not found' });
+
+  task.status = status;
+  task.updatedAt = new Date().toISOString();
+  if (status === 'done') task.completedAt = new Date().toISOString();
+  fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
+  res.json(task);
+});
+
+// Move lead to new stage
 
 app.post('/api/leads/:id/move', (req, res) => {
   const { id } = req.params;

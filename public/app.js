@@ -32,6 +32,7 @@ let inboxFilter = 'all';
 
 function render() {
   renderDashboard();
+  renderTasks();
   renderPipeline();
   renderContent();
   renderInbox();
@@ -148,6 +149,125 @@ function renderDashboard() {
       <div class="stakes-bar">⚠️ €${s.stakeRisk.toLocaleString()} at risk — ${s.overdueStakes} task${s.overdueStakes !== 1 ? 's' : ''} overdue</div>
     ` : ''}
   `;
+}
+
+// === TASKS ===
+const TASK_STATUSES = [
+  { key: 'todo', label: 'To Do' },
+  { key: 'doing', label: 'In Progress' },
+  { key: 'done', label: 'Done' },
+  { key: 'blocked', label: 'Blocked' },
+];
+
+const energyColor = e => ({ high: '#ef4444', medium: '#eab308', low: '#22c55e' }[e] || '#eab308');
+
+async function moveTask(taskId, newStatus) {
+  const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus })
+  });
+  if (!res.ok) throw new Error('Move failed');
+  return res.json();
+}
+
+function renderTasks() {
+  const el = document.getElementById('tasks');
+  const todayStr = today();
+  let firstTodo = true;
+
+  el.innerHTML = `
+    <div class="section-header"><h2 style="margin:0">Tasks</h2><span class="powered-by">⚡ taskpipe</span></div>
+    <div class="kanban">${TASK_STATUSES.map(({ key, label }) => {
+      const tasks = state.tasks.filter(t => t.status === key);
+      return `
+        <div class="kanban-col task-column" data-status="${key}">
+          <div class="kanban-header">
+            <span>${label}</span>
+            <span class="kanban-count">${tasks.length}</span>
+          </div>
+          ${tasks.map(t => {
+            const isNow = key === 'todo' && firstTodo;
+            if (key === 'todo' && firstTodo) firstTodo = false;
+            const overdue = t.due && t.due < todayStr && key !== 'done';
+            return `
+              <div class="task-card energy-${t.energy || 'medium'}" draggable="true" data-task-id="${t.id}">
+                <div class="task-title">
+                  ${isNow ? '<span class="badge badge-now">NOW</span> ' : ''}
+                  ${energyEmoji(t.energy)} ${esc(t.content)}
+                </div>
+                <div class="task-meta">
+                  ${t.estimate ? `<span>${t.estimate}m</span>` : ''}
+                  ${t.due ? `<span style="${overdue ? 'color:var(--red)' : ''}">📅 ${t.due}</span>` : ''}
+                  ${t.campaign ? `<span class="badge badge-scheduled">${esc(t.campaign)}</span>` : ''}
+                  ${t.stake ? '<span>💰</span>' : ''}
+                  ${(t.tags || []).map(tag => `<span class="badge" style="background:rgba(255,255,255,.08);color:var(--muted)">${esc(tag)}</span>`).join('')}
+                </div>
+                <div class="task-mobile-move lead-mobile-move">
+                  <select class="move-select" onchange="handleMobileTaskMove(this, '${t.id}', '${esc(t.content).replace(/'/g, "\\'")}')">
+                    <option value="">Move to…</option>
+                    ${TASK_STATUSES.filter(s => s.key !== key).map(s => `<option value="${s.key}">${s.label}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }).join('')}</div>
+  `;
+
+  // Drag events
+  el.querySelectorAll('.task-card[draggable]').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', card.dataset.taskId);
+      e.dataTransfer.effectAllowed = 'move';
+      requestAnimationFrame(() => card.classList.add('dragging'));
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      el.querySelectorAll('.task-column.drag-over').forEach(c => c.classList.remove('drag-over'));
+    });
+  });
+
+  el.querySelectorAll('.task-column').forEach(col => {
+    col.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('drag-over'); });
+    col.addEventListener('dragleave', e => { if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
+    col.addEventListener('drop', async e => {
+      e.preventDefault();
+      col.classList.remove('drag-over');
+      const taskId = e.dataTransfer.getData('text/plain');
+      const newStatus = col.dataset.status;
+      const task = state.tasks.find(t => t.id === taskId);
+      if (!task || task.status === newStatus) return;
+      try {
+        const updated = await moveTask(taskId, newStatus);
+        task.status = updated.status;
+        task.updatedAt = updated.updatedAt;
+        const label = TASK_STATUSES.find(s => s.key === newStatus)?.label || newStatus;
+        showToast(`✅ Task moved to ${label}`);
+        render();
+      } catch (err) {
+        showToast('❌ Failed to move task');
+      }
+    });
+  });
+}
+
+async function handleMobileTaskMove(select, taskId, taskName) {
+  const newStatus = select.value;
+  if (!newStatus) return;
+  select.value = '';
+  try {
+    const updated = await moveTask(taskId, newStatus);
+    const task = state.tasks.find(t => t.id === taskId);
+    if (task) { task.status = updated.status; task.updatedAt = updated.updatedAt; }
+    const label = TASK_STATUSES.find(s => s.key === newStatus)?.label || newStatus;
+    showToast(`✅ Task moved to ${label}`);
+    render();
+  } catch (err) {
+    showToast('❌ Failed to move task');
+  }
 }
 
 // === PIPELINE ===
