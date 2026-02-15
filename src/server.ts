@@ -1253,6 +1253,111 @@ app.post('/api/gateway/test', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════
+// Sync: local → cloud
+// ═══════════════════════════════════════════
+
+const SYNC_SECRET = process.env.SYNC_SECRET || '';
+
+// Cloud side: receive sync data from local instance
+if (IS_CLOUD && SYNC_SECRET) {
+  app.post('/api/sync', async (req, res) => {
+    const secret = req.headers['x-sync-secret'];
+    if (!secret || secret !== SYNC_SECRET) {
+      return res.status(401).json({ error: 'invalid sync secret' });
+    }
+
+    const workspaceId = req.headers['x-workspace-id'] as string;
+    if (!workspaceId || !supabase) {
+      return res.status(400).json({ error: 'workspace-id header required' });
+    }
+
+    try {
+      const dataTypes = ['tasks', 'leads', 'content', 'activity', 'stats', 'config', 'inbox'] as const;
+      let synced = 0;
+
+      for (const dt of dataTypes) {
+        if (req.body[dt] !== undefined) {
+          await supabase.from('workspace_data').upsert({
+            workspace_id: workspaceId,
+            data_type: dt,
+            data: req.body[dt],
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'workspace_id,data_type' });
+          synced++;
+        }
+      }
+
+      res.json({ ok: true, synced });
+    } catch (e: any) {
+      console.error('Sync error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  console.log('   Sync endpoint: POST /api/sync (secret-authenticated)');
+}
+
+// Local side: push local data to cloud periodically
+const SYNC_URL = process.env.SYNC_URL || '';         // e.g. http://46.225.119.95:4000
+const SYNC_WORKSPACE_ID = process.env.SYNC_WORKSPACE_ID || '';
+const SYNC_INTERVAL = parseInt(process.env.SYNC_INTERVAL || '30000', 10);
+
+if (!IS_CLOUD && SYNC_URL && SYNC_SECRET && SYNC_WORKSPACE_ID) {
+  async function syncToCloud() {
+    try {
+      const payload: Record<string, any> = {};
+      const files: [string, string][] = [
+        ['tasks', p('.taskpipe', 'tasks.json')],
+        ['leads', p('.leadpipe', 'leads.json')],
+        ['content', p('.contentq', 'queue.json')],
+        ['activity', p('activity.json')],
+        ['stats', p('.taskpipe', 'stats.json')],
+        ['config', p('config.json')],
+        ['inbox', p('inbox.json')],
+      ];
+
+      for (const [key, filePath] of files) {
+        const data = readJSON(filePath);
+        if (data !== null) payload[key] = data;
+      }
+
+      // Also try alternate stats path
+      if (!payload.stats) {
+        const alt = readJSON(p('stats.json'));
+        if (alt) payload.stats = alt;
+      }
+
+      if (Object.keys(payload).length === 0) return;
+
+      const resp = await fetch(`${SYNC_URL}/api/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-secret': SYNC_SECRET,
+          'x-workspace-id': SYNC_WORKSPACE_ID,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.text();
+        console.error(`Sync failed (${resp.status}): ${err}`);
+      }
+    } catch (e: any) {
+      console.error('Sync error:', e.message);
+    }
+  }
+
+  // Run first sync after 5 seconds, then every SYNC_INTERVAL
+  setTimeout(() => {
+    syncToCloud();
+    setInterval(syncToCloud, SYNC_INTERVAL);
+  }, 5000);
+
+  console.log(`   Sync: pushing to ${SYNC_URL} every ${SYNC_INTERVAL / 1000}s`);
+}
+
 // Static
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
