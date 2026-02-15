@@ -1,0 +1,21 @@
+{
+  "name": "marketing-hq",
+  "version": "0.1.0",
+  "description": "Unified marketing dashboard — The Unix of Marketing",
+  "bin": { "marketing-hq": "dist/server.js" },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "node dist/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
