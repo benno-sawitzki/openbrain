@@ -172,12 +172,12 @@ export function BrainTab() {
   const mergedSkills = useMemo(() => {
     if (!data) return [];
     const skillConns = new Map<string, Connection>();
-    for (const c of data.connections) {
+    for (const c of (data.connections || [])) {
       if (c.category === 'Skills') skillConns.set(c.name.toLowerCase(), c);
     }
     const seen = new Set<string>();
     const result: MergedSkill[] = [];
-    for (const s of data.skills) {
+    for (const s of (data.skills || [])) {
       const key = s.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -189,7 +189,7 @@ export function BrainTab() {
         detail: conn?.detail || 'OpenClaw skill',
       });
     }
-    for (const c of data.connections) {
+    for (const c of (data.connections || [])) {
       if (c.category === 'Skills' && !seen.has(c.name.toLowerCase())) {
         seen.add(c.name.toLowerCase());
         result.push({ name: c.name, icon: c.icon, status: c.status, detail: c.detail });
@@ -200,7 +200,7 @@ export function BrainTab() {
 
   const nonSkillConnections = useMemo(() => {
     if (!data) return {};
-    return data.connections
+    return (data.connections || [])
       .filter(c => c.category !== 'Skills')
       .reduce<Record<string, Connection[]>>((acc, c) => {
         (acc[c.category] = acc[c.category] || []).push(c);
@@ -215,7 +215,7 @@ export function BrainTab() {
 
   const nonSkillConnectionCount = useMemo(() => {
     if (!data) return 0;
-    return data.connections.filter(c => c.category !== 'Skills').length;
+    return (data.connections || []).filter(c => c.category !== 'Skills').length;
   }, [data?.connections]);
 
   if (loading) return <div className="text-muted-foreground animate-fade-in">Loading agent brain...</div>;
@@ -224,7 +224,7 @@ export function BrainTab() {
   const name = data.identity?.match(/Name:\*?\*?\s*(.+)/)?.[1]?.trim() || 'A.M.A.';
   const creature = data.identity?.match(/Creature:\*?\*?\s*(.+)/)?.[1]?.trim() || '';
   const emoji = data.identity?.match(/Emoji:\*?\*?\s*(.+)/)?.[1]?.trim() || '\u{1F47B}\u26A1';
-  const activeNonSkillConns = data.connections.filter(c => c.category !== 'Skills' && c.status === 'active').length;
+  const activeNonSkillConns = (data.connections || []).filter(c => c.category !== 'Skills' && c.status === 'active').length;
   const activeSkills = mergedSkills.filter(s => s.status === 'active').length;
   const selectedSkillData = selectedSkill ? mergedSkills.find(s => s.name === selectedSkill) : null;
 
