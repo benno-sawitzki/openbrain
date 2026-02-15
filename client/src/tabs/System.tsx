@@ -170,7 +170,22 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
     } catch { notify('\u274C Failed to create'); }
   };
 
-  if (loading) return <div className="text-muted-foreground">Loading system data...</div>;
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-24 gap-6">
+      <div className="relative">
+        <div className="landing-orbit" style={{ inset: '-14px' }}>
+          {[0, 1, 2].map(i => (
+            <span key={i} className="landing-orbit-dot" style={{ '--i': i } as React.CSSProperties} />
+          ))}
+        </div>
+        <span className="text-4xl block">🧠</span>
+      </div>
+      <div className="text-center">
+        <p className="text-sm text-muted-foreground">Scanning the lobster's nervous system...</p>
+        <p className="text-[11px] text-muted-foreground/50 font-mono mt-1">loading crons, sessions &amp; agents</p>
+      </div>
+    </div>
+  );
 
   const gwConnected = gatewayInfo?.connected || false;
   const channels = gatewayHealth?.channels || {};

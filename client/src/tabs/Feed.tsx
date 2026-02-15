@@ -111,7 +111,19 @@ export function FeedTab({ activity, onNavigate }: { activity: any; onNavigate?: 
 
   const isToday = (d: string) => d === new Date().toISOString().slice(0, 10);
 
-  if (loading) return <div className="text-muted-foreground animate-fade-in">Loading feed...</div>;
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-24 gap-6">
+      <div className="relative">
+        <div className="landing-orbit" style={{ inset: '-14px' }}>
+          {[0, 1, 2].map(i => (
+            <span key={i} className="landing-orbit-dot" style={{ '--i': i } as React.CSSProperties} />
+          ))}
+        </div>
+        <span className="text-4xl block">🦞</span>
+      </div>
+      <p className="text-sm text-muted-foreground">Loading feed...</p>
+    </div>
+  );
 
   const items = data?.items || [];
   const filtered = filter === 'all' ? items : items.filter(i => i.type === filter);
