@@ -4,30 +4,40 @@ import { supabase, isCloudMode } from './supabase';
 const json = (r: Response) => r.json();
 
 // In cloud mode, add the auth token to all API requests.
-// getSession() can return stale/expired tokens from cache, so we
-// call getUser() first which forces a server-side refresh if needed.
+// Use getSession() first (fast, cached), only refreshSession() if expired.
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 
 async function authHeaders(): Promise<Record<string, string>> {
   if (!isCloudMode || !supabase) return {};
   const now = Date.now() / 1000;
+  // Return cached token if still valid (with 30s buffer)
   if (cachedToken && now < tokenExpiresAt - 30) {
     return { Authorization: `Bearer ${cachedToken}` };
   }
-  // Force refresh by getting user (validates + refreshes token)
-  const { data: { session } } = await supabase.auth.refreshSession();
-  if (!session?.access_token) {
-    // Fallback to getSession if refresh fails
-    const { data: { session: fallback } } = await supabase.auth.getSession();
-    if (!fallback?.access_token) return {};
-    cachedToken = fallback.access_token;
-    tokenExpiresAt = fallback.expires_at || 0;
-    return { Authorization: `Bearer ${fallback.access_token}` };
+  // Try cached session first (instant, no network)
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.access_token && session.expires_at && now < session.expires_at - 30) {
+    cachedToken = session.access_token;
+    tokenExpiresAt = session.expires_at;
+    return { Authorization: `Bearer ${session.access_token}` };
   }
-  cachedToken = session.access_token;
-  tokenExpiresAt = session.expires_at || 0;
-  return { Authorization: `Bearer ${session.access_token}` };
+  // Token expired — try refresh (but don't crash if it fails)
+  if (session?.refresh_token) {
+    try {
+      const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+      if (refreshed?.access_token) {
+        cachedToken = refreshed.access_token;
+        tokenExpiresAt = refreshed.expires_at || 0;
+        return { Authorization: `Bearer ${refreshed.access_token}` };
+      }
+    } catch {}
+  }
+  // Last resort: use whatever token we have (even if expired — server will reject, but won't log us out)
+  if (session?.access_token) {
+    return { Authorization: `Bearer ${session.access_token}` };
+  }
+  return {};
 }
 
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
