@@ -88,7 +88,7 @@ export default function App() {
     }
     if (!auth.user) {
       if (showLogin) {
-        return <LoginPage onSignIn={auth.signIn} onSignUp={auth.signUp} />;
+        return <LoginPage onSignIn={auth.signIn} onSignUp={auth.signUp} onBack={() => setShowLogin(false)} />;
       }
       return <LandingPage onLogin={() => setShowLogin(true)} />;
     }
