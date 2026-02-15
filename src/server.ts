@@ -591,8 +591,12 @@ app.get('/api/heartbeat', async (_req, res) => {
 // Agent brain — workspace files + config
 const WORKSPACE = path.join(DATA_DIR, '..');
 
-app.get('/api/agent/brain', (_req, res) => {
+app.get('/api/agent/brain', async (_req, res) => {
   try {
+    if (IS_CLOUD) {
+      const data = await readSyncedData(_req, 'brain');
+      return res.json(data || { model: {}, channels: {}, connections: [], skills: [], memoryFiles: [] });
+    }
     const readFile = (name: string) => {
       try { return fs.readFileSync(path.join(WORKSPACE, name), 'utf-8'); } catch { return null; }
     };
@@ -1004,8 +1008,12 @@ app.get('/api/feed', async (_req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/memory/timeline', (_req, res) => {
+app.get('/api/memory/timeline', async (_req, res) => {
   try {
+    if (IS_CLOUD) {
+      const data = await readSyncedData(_req, 'memory');
+      return res.json(data || { files: [] });
+    }
     const memoryDir = path.join(WORKSPACE, 'memory');
     const files: any[] = [];
     try {
