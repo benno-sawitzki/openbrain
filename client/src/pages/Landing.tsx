@@ -147,7 +147,7 @@ export function LandingPage({ onLogin }: Props) {
 
   const WaitlistForm = ({ id }: { id: string }) =>
     !submitted ? (
-      <form onSubmit={handleWaitlist} className="flex w-full max-w-sm gap-2">
+      <form onSubmit={handleWaitlist} className="flex flex-col sm:flex-row w-full max-w-sm gap-2">
         <label htmlFor={id} className="sr-only">Email address</label>
         <Input
           id={id}
@@ -199,11 +199,11 @@ export function LandingPage({ onLogin }: Props) {
               stealth
             </span>
           </div>
-          <div className="flex items-center gap-3">
-            <button onClick={onLogin} className="text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button onClick={onLogin} className="hidden sm:block text-[13px] text-muted-foreground hover:text-foreground transition-colors">
               Log in
             </button>
-            <Button onClick={onLogin} size="sm" className="landing-cta-btn rounded-full px-4 text-[13px] font-medium">
+            <Button onClick={onLogin} size="sm" className="landing-cta-btn rounded-full px-3 sm:px-4 text-[12px] sm:text-[13px] font-medium">
               Get started
             </Button>
           </div>
@@ -230,21 +230,21 @@ export function LandingPage({ onLogin }: Props) {
 
         {/* Hero content — with dark backdrop for readability */}
         <div className="relative z-10 text-center px-6 max-w-[820px] mx-auto">
-          <div className="landing-hero-backdrop rounded-3xl px-8 py-12 sm:px-12 sm:py-16">
+          <div className="landing-hero-backdrop rounded-3xl px-4 py-10 sm:px-12 sm:py-16">
             <div className="font-mono text-xs text-zinc-400 mb-6 flex items-center justify-center gap-2">
               <span className="text-[10px] opacity-50">{'//'}</span>
               <span>agent orchestration platform</span>
               <span className="text-[10px] opacity-50">{'//'}</span>
             </div>
 
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-balance leading-[1.05] text-white"
+            <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-balance leading-[1.05] text-white"
               style={{ letterSpacing: '-0.035em', textShadow: '0 2px 20px rgba(0,0,0,0.5)' }}>
               The command center
               <br />
               <span className="landing-hero-accent">for your AI lobster</span>
             </h1>
 
-            <p className="mt-7 text-lg sm:text-xl text-zinc-300 max-w-[520px] mx-auto text-pretty leading-relaxed"
+            <p className="mt-5 sm:mt-7 text-base sm:text-lg md:text-xl text-zinc-300 max-w-[520px] mx-auto text-pretty leading-relaxed"
               style={{ textShadow: '0 1px 8px rgba(0,0,0,0.6)' }}>
               See what your agents are doing. Steer them.
               Mess with their brains. Control the fleet
@@ -283,9 +283,9 @@ export function LandingPage({ onLogin }: Props) {
       </section>
 
       {/* ═══ What is Open Brain ═══ */}
-      <section className="py-24 px-6">
+      <section className="py-16 sm:py-24 px-6">
         <div className="mx-auto max-w-[800px] text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-balance leading-tight text-foreground"
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-balance leading-tight text-foreground"
             style={{ letterSpacing: '-0.03em' }}>
             Your AI is doing things.<br />
             <span className="text-zinc-400">Do you know what?</span>
@@ -300,7 +300,7 @@ export function LandingPage({ onLogin }: Props) {
       </section>
 
       {/* ═══ How it works ═══ */}
-      <section className="pb-24">
+      <section className="pb-16 sm:pb-24">
         <SectionDivider label="how it works" />
         <div className="mx-auto max-w-[1000px] px-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -320,7 +320,7 @@ export function LandingPage({ onLogin }: Props) {
       </section>
 
       {/* ═══ Capabilities — bento grid ═══ */}
-      <section className="pb-24">
+      <section className="pb-16 sm:pb-24">
         <SectionDivider label="capabilities" />
         <div className="mx-auto max-w-[1000px] px-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 stagger-children">
@@ -349,11 +349,11 @@ export function LandingPage({ onLogin }: Props) {
       </section>
 
       {/* ═══ Use cases ═══ */}
-      <section className="pb-24">
+      <section className="pb-16 sm:pb-24">
         <SectionDivider label="use cases" />
         <div className="mx-auto max-w-[1000px] px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold text-balance text-foreground" style={{ letterSpacing: '-0.03em' }}>
+          <div className="text-center mb-8 sm:mb-12">
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-balance text-foreground" style={{ letterSpacing: '-0.03em' }}>
               Built for people who ship
             </h2>
             <p className="mt-3 text-zinc-400 max-w-[500px] mx-auto text-pretty">
@@ -386,9 +386,9 @@ export function LandingPage({ onLogin }: Props) {
       </section>
 
       {/* ═══ Modules strip ═══ */}
-      <section className="py-20 px-6 border-y border-border/10">
+      <section className="py-14 sm:py-20 px-6 border-y border-border/10">
         <div className="mx-auto max-w-[800px] text-center">
-          <h2 className="text-2xl sm:text-3xl font-bold text-balance leading-tight text-foreground"
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-balance leading-tight text-foreground"
             style={{ letterSpacing: '-0.03em' }}>
             One brain to rule them all
           </h2>
@@ -409,10 +409,10 @@ export function LandingPage({ onLogin }: Props) {
       </section>
 
       {/* ═══ Why now / differentiator ═══ */}
-      <section className="py-24 px-6">
+      <section className="py-16 sm:py-24 px-6">
         <div className="mx-auto max-w-[1000px]">
-          <div className="text-center mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold text-balance text-foreground" style={{ letterSpacing: '-0.03em' }}>
+          <div className="text-center mb-8 sm:mb-12">
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-balance text-foreground" style={{ letterSpacing: '-0.03em' }}>
               Not another dashboard
             </h2>
             <p className="mt-3 text-zinc-400 max-w-[500px] mx-auto text-pretty">
@@ -420,7 +420,7 @@ export function LandingPage({ onLogin }: Props) {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               {
                 title: 'Agent-native',
@@ -448,7 +448,7 @@ export function LandingPage({ onLogin }: Props) {
       </section>
 
       {/* ═══ Bottom CTA ═══ */}
-      <section className="py-28 px-6 relative overflow-hidden">
+      <section className="py-16 sm:py-28 px-6 relative overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] opacity-[0.03] pointer-events-none"
           style={{ background: `radial-gradient(ellipse at center, ${palette.accent}, transparent 70%)` }} />
 
@@ -462,7 +462,7 @@ export function LandingPage({ onLogin }: Props) {
             </div>
           </div>
 
-          <h2 className="text-2xl sm:text-3xl font-bold text-balance leading-tight text-foreground"
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-balance leading-tight text-foreground"
             style={{ letterSpacing: '-0.03em' }}>
             Ready to take the controls?
           </h2>
@@ -478,13 +478,13 @@ export function LandingPage({ onLogin }: Props) {
       </section>
 
       {/* ═══ Footer ═══ */}
-      <footer className="border-t border-border/15 py-8 px-6">
-        <div className="mx-auto max-w-[1000px] flex items-center justify-between">
+      <footer className="border-t border-border/15 py-6 sm:py-8 px-6">
+        <div className="mx-auto max-w-[1000px] flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="text-sm">{'\u{1F9E0}'}</span>
             <span className="text-xs text-zinc-500 font-mono">open brain v0.2</span>
           </div>
-          <p className="text-[11px] text-zinc-600 font-mono">
+          <p className="text-[11px] text-zinc-600 font-mono text-center">
             no lobsters were harmed in the making of this product
           </p>
         </div>
