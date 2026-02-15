@@ -151,24 +151,59 @@ function renderDashboard() {
 }
 
 // === PIPELINE ===
+const PIPELINE_STAGES = ['cold', 'warm', 'hot', 'proposal', 'won', 'lost'];
+
+function showToast(msg) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 2000);
+}
+
+async function moveLead(leadId, newStage) {
+  const res = await fetch(`/api/leads/${encodeURIComponent(leadId)}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage: newStage })
+  });
+  if (!res.ok) throw new Error('Move failed');
+  return res.json();
+}
+
 function renderPipeline() {
-  const stages = ['cold', 'warm', 'hot', 'proposal', 'won', 'lost'];
   const el = document.getElementById('pipeline');
   
-  el.innerHTML = `<div class="kanban">${stages.map(stage => {
+  el.innerHTML = `<div class="kanban">${PIPELINE_STAGES.map(stage => {
     const leads = state.leads.filter(l => l.stage === stage);
     const total = leads.reduce((s, l) => s + (l.value || 0), 0);
     return `
-      <div class="kanban-col">
+      <div class="kanban-col pipeline-column" data-stage="${stage}">
         <div class="kanban-header">
           <span>${stage}</span>
           <span><span class="kanban-count">${leads.length}</span> · €${total.toLocaleString()}</span>
         </div>
         ${leads.map(l => `
-          <div class="lead-card ${staleClass(l)}" onclick="this.classList.toggle('expanded')">
+          <div class="lead-card ${staleClass(l)}" draggable="true" data-lead-id="${l.id}" onclick="if(!this._wasDragged)this.classList.toggle('expanded')">
             <div><span class="lead-name">${esc(l.name)}</span></div>
             <div><span class="lead-value">€${(l.value || 0).toLocaleString()}</span></div>
             <div class="lead-meta">${esc(l.source)} ${l.tags?.length ? '· ' + l.tags.join(', ') : ''}</div>
+            <div class="lead-mobile-move">
+              <select class="move-select" onchange="handleMobileMove(this, '${l.id}', '${esc(l.name)}')" onclick="event.stopPropagation()">
+                <option value="">Move to…</option>
+                ${PIPELINE_STAGES.filter(s => s !== stage).map(s => `<option value="${s}">${s}</option>`).join('')}
+              </select>
+            </div>
             <div class="lead-detail">
               ${l.company ? `<div>Company: ${esc(l.company)}</div>` : ''}
               ${l.email ? `<div>Email: ${esc(l.email)}</div>` : ''}
@@ -181,6 +216,57 @@ function renderPipeline() {
       </div>
     `;
   }).join('')}</div>`;
+
+  // Attach drag events
+  el.querySelectorAll('.lead-card[draggable]').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      card._wasDragged = false;
+      e.dataTransfer.setData('text/plain', card.dataset.leadId);
+      e.dataTransfer.effectAllowed = 'move';
+      requestAnimationFrame(() => card.classList.add('dragging'));
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      el.querySelectorAll('.pipeline-column.drag-over').forEach(c => c.classList.remove('drag-over'));
+    });
+  });
+
+  el.querySelectorAll('.pipeline-column').forEach(col => {
+    col.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('drag-over'); });
+    col.addEventListener('dragleave', e => { if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
+    col.addEventListener('drop', async e => {
+      e.preventDefault();
+      col.classList.remove('drag-over');
+      const leadId = e.dataTransfer.getData('text/plain');
+      const newStage = col.dataset.stage;
+      const lead = state.leads.find(l => l.id === leadId);
+      if (!lead || lead.stage === newStage) return;
+      try {
+        const updated = await moveLead(leadId, newStage);
+        lead.stage = updated.stage;
+        lead.updatedAt = updated.updatedAt;
+        showToast(`✅ ${lead.name} moved to ${newStage}`);
+        render();
+      } catch (err) {
+        showToast(`❌ Failed to move lead`);
+      }
+    });
+  });
+}
+
+async function handleMobileMove(select, leadId, leadName) {
+  const newStage = select.value;
+  if (!newStage) return;
+  select.value = '';
+  try {
+    const updated = await moveLead(leadId, newStage);
+    const lead = state.leads.find(l => l.id === leadId);
+    if (lead) { lead.stage = updated.stage; lead.updatedAt = updated.updatedAt; }
+    showToast(`✅ ${leadName} moved to ${newStage}`);
+    render();
+  } catch (err) {
+    showToast(`❌ Failed to move lead`);
+  }
 }
 
 // === CONTENT ===

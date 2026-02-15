@@ -341,6 +341,37 @@ main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
 .inbox-detail { display: none; margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--border); font-size: .8125rem; }
 .inbox-full-card.expanded .inbox-detail { display: block; }
 
+/* Drag and Drop */
+.lead-card[draggable] { cursor: grab; transition: opacity .2s, transform .2s, background .2s; }
+.lead-card[draggable]:active { cursor: grabbing; }
+.lead-card.dragging { opacity: 0.4; transform: rotate(2deg); }
+.pipeline-column.drag-over { border: 2px dashed var(--accent); background: rgba(0,255,0,.04); }
+.lead-card.drop-success { animation: dropFlash .5s ease; }
+@keyframes dropFlash {
+  0% { background: rgba(0,255,0,.25); }
+  100% { background: rgba(255,255,255,.03); }
+}
+
+/* Mobile move dropdown */
+.lead-mobile-move { display: none; margin-top: .375rem; }
+.move-select {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: .375rem; padding: .25rem .5rem; font-size: .75rem; width: 100%; cursor: pointer;
+}
+@media (pointer: coarse) {
+  .lead-mobile-move { display: block; }
+  .lead-card[draggable] { cursor: pointer; }
+}
+
+/* Toast */
+#toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999; display: flex; flex-direction: column; gap: .5rem; }
+.toast {
+  background: #16a34a; color: #fff; padding: .625rem 1rem; border-radius: .5rem;
+  font-size: .8125rem; font-weight: 500; opacity: 0; transform: translateY(10px);
+  transition: opacity .3s, transform .3s; white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+
 /* Agents */
 .agent-card {
   padding: .75rem;

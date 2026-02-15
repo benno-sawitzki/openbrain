@@ -149,6 +149,29 @@ function parseWorkflows(output: string): any[] {
   return workflows;
 }
 
+// Move lead to new stage
+app.use(express.json());
+
+app.post('/api/leads/:id/move', (req, res) => {
+  const { id } = req.params;
+  const { stage } = req.body;
+  if (!stage) return res.status(400).json({ error: 'stage required' });
+
+  const leadsPath = p('.leadpipe', 'leads.json');
+  const leads = readJSON(leadsPath);
+  if (!leads) return res.status(500).json({ error: 'could not read leads' });
+
+  const lead = leads.find((l: any) =>
+    id.length < 36 ? l.id.startsWith(id) : l.id === id
+  );
+  if (!lead) return res.status(404).json({ error: 'lead not found' });
+
+  lead.stage = stage;
+  lead.updatedAt = new Date().toISOString();
+  fs.writeFileSync(leadsPath, JSON.stringify(leads, null, 2));
+  res.json(lead);
+});
+
 // Static
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
