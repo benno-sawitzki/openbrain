@@ -94,7 +94,8 @@ function renderDashboard() {
     </div>
     <div class="dashboard-grid">
       <div class="panel">
-        <div class="section-header"><div class="panel-title">Today's Tasks</div><span class="powered-by">⚡ taskpipe</span></div>
+        <div class="section-header"><div class="panel-title">Today's Tasks</div><span class="powered-by">⚡ taskpipe</span><button class="add-btn" onclick="event.stopPropagation();toggleForm('dash-add-task')">+ Add</button></div>
+        ${taskFormHTML('dash-add-task')}
         ${sortedTasks.slice(0, 3).map((t, i) => `
           <div class="task-card dash-task-card energy-${t.energy || 'medium'} ${t.status === 'done' ? 'done' : ''}" draggable="true" data-task-id="${t.id}">
             <div class="task-title">
@@ -270,7 +271,8 @@ function renderTasks() {
   let firstTodo = true;
 
   el.innerHTML = `
-    <div class="section-header"><h2 style="margin:0">Tasks</h2><span class="powered-by">⚡ taskpipe</span></div>
+    <div class="section-header"><h2 style="margin:0">Tasks</h2><span class="powered-by">⚡ taskpipe</span><button class="add-btn" onclick="toggleForm('tasks-add-task')">+ Add</button></div>
+    ${taskFormHTML('tasks-add-task')}
     <div class="kanban">${TASK_STATUSES.map(({ key, label }) => {
       const tasks = state.tasks.filter(t => t.status === key);
       return `
@@ -417,7 +419,7 @@ async function moveLead(leadId, newStage) {
 function renderPipeline() {
   const el = document.getElementById('pipeline');
   
-  el.innerHTML = `<div class="section-header"><h2 style="margin:0 0 12px">Pipeline</h2><span class="powered-by">🎯 leadpipe</span></div><div class="kanban">${PIPELINE_STAGES.map(stage => {
+  el.innerHTML = `<div class="section-header"><h2 style="margin:0 0 12px">Pipeline</h2><span class="powered-by">🎯 leadpipe</span><button class="add-btn" onclick="toggleForm('pipeline-add-lead')">+ Add</button></div>${leadFormHTML('pipeline-add-lead')}<div class="kanban">${PIPELINE_STAGES.map(stage => {
     const leads = state.leads.filter(l => l.stage === stage);
     const total = leads.reduce((s, l) => s + (l.value || 0), 0);
     return `
@@ -512,7 +514,8 @@ function renderContent() {
   });
 
   el.innerHTML = `
-    <div class="section-header"><h2 style="margin:0 0 12px">Content Queue</h2><span class="powered-by">📝 contentq</span></div>
+    <div class="section-header"><h2 style="margin:0 0 12px">Content Queue</h2><span class="powered-by">📝 contentq</span><button class="add-btn" onclick="toggleForm('content-add')">+ Add</button></div>
+    ${contentFormHTML('content-add')}
     <div class="content-table">
       <div class="content-row" style="font-weight:600;color:var(--muted);font-size:.75rem;cursor:default">
         <div>Status</div><div>Platform</div><div>Content</div><div>Created</div><div>Scheduled</div>
@@ -903,6 +906,142 @@ function renderHelp() {
       }
     });
   });
+}
+
+// === ADD FORMS ===
+let taskEnergy = 'medium';
+
+function toggleForm(id) {
+  const form = document.getElementById(id);
+  if (!form) return;
+  form.classList.toggle('visible');
+  if (form.classList.contains('visible')) {
+    const first = form.querySelector('input[autofocus], textarea[autofocus]');
+    if (first) setTimeout(() => first.focus(), 50);
+  }
+}
+
+function taskFormHTML(formId) {
+  return `
+    <div class="add-form" id="${formId}">
+      <div class="form-row">
+        <input type="text" id="${formId}-content" placeholder="Task description…" autofocus>
+        <div class="energy-toggle">
+          <button type="button" onclick="setEnergy(this,'high')" data-energy="high">⚡High</button>
+          <button type="button" onclick="setEnergy(this,'medium')" data-energy="medium" class="active">🔋Med</button>
+          <button type="button" onclick="setEnergy(this,'low')" data-energy="low">🪫Low</button>
+        </div>
+        <input type="number" id="${formId}-estimate" placeholder="min" style="max-width:70px">
+      </div>
+      <div class="form-row">
+        <input type="date" id="${formId}-due">
+        <input type="text" id="${formId}-campaign" placeholder="campaign">
+        <input type="text" id="${formId}-stake" placeholder="what's at risk?">
+        <input type="text" id="${formId}-tags" placeholder="comma separated tags">
+      </div>
+      <div class="form-actions">
+        <button class="submit-btn" onclick="submitTask('${formId}')">Add</button>
+        <button class="cancel-btn" onclick="toggleForm('${formId}')">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function setEnergy(btn, val) {
+  taskEnergy = val;
+  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function submitTask(formId) {
+  const content = document.getElementById(`${formId}-content`)?.value?.trim();
+  if (!content) return;
+  const body = {
+    content,
+    energy: taskEnergy,
+    estimate: parseInt(document.getElementById(`${formId}-estimate`)?.value) || null,
+    due: document.getElementById(`${formId}-due`)?.value || null,
+    campaign: document.getElementById(`${formId}-campaign`)?.value?.trim() || null,
+    stake: document.getElementById(`${formId}-stake`)?.value?.trim() || null,
+    tags: (document.getElementById(`${formId}-tags`)?.value || '').split(',').map(s => s.trim()).filter(Boolean),
+  };
+  await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  toggleForm(formId);
+  showToast(`✅ Added: ${content}`);
+  taskEnergy = 'medium';
+  await fetchAll();
+}
+
+function leadFormHTML(formId) {
+  return `
+    <div class="add-form" id="${formId}">
+      <div class="form-row">
+        <input type="text" id="${formId}-name" placeholder="Name…" autofocus>
+        <input type="email" id="${formId}-email" placeholder="Email">
+        <input type="text" id="${formId}-company" placeholder="Company">
+      </div>
+      <div class="form-row">
+        <select id="${formId}-source"><option value="linkedin">LinkedIn</option><option value="referral">Referral</option><option value="website">Website</option><option value="cold">Cold</option><option value="other" selected>Other</option></select>
+        <input type="number" id="${formId}-value" placeholder="€">
+        <select id="${formId}-stage"><option value="cold" selected>Cold</option><option value="warm">Warm</option><option value="hot">Hot</option><option value="proposal">Proposal</option></select>
+        <input type="text" id="${formId}-tags" placeholder="comma separated tags">
+      </div>
+      <div class="form-actions">
+        <button class="submit-btn" onclick="submitLead('${formId}')">Add</button>
+        <button class="cancel-btn" onclick="toggleForm('${formId}')">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+async function submitLead(formId) {
+  const name = document.getElementById(`${formId}-name`)?.value?.trim();
+  if (!name) return;
+  const body = {
+    name,
+    email: document.getElementById(`${formId}-email`)?.value?.trim() || null,
+    company: document.getElementById(`${formId}-company`)?.value?.trim() || null,
+    source: document.getElementById(`${formId}-source`)?.value || 'other',
+    value: parseInt(document.getElementById(`${formId}-value`)?.value) || 0,
+    stage: document.getElementById(`${formId}-stage`)?.value || 'cold',
+    tags: (document.getElementById(`${formId}-tags`)?.value || '').split(',').map(s => s.trim()).filter(Boolean),
+  };
+  await fetch('/api/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  toggleForm(formId);
+  showToast(`✅ Added: ${name}`);
+  await fetchAll();
+}
+
+function contentFormHTML(formId) {
+  return `
+    <div class="add-form" id="${formId}">
+      <div class="form-row">
+        <textarea id="${formId}-text" rows="3" placeholder="Content text…" autofocus></textarea>
+      </div>
+      <div class="form-row">
+        <select id="${formId}-platform"><option value="linkedin" selected>LinkedIn</option><option value="twitter">Twitter</option><option value="email">Email</option></select>
+        <input type="text" id="${formId}-tags" placeholder="comma separated tags">
+      </div>
+      <div class="form-actions">
+        <button class="submit-btn" onclick="submitContent('${formId}')">Add</button>
+        <button class="cancel-btn" onclick="toggleForm('${formId}')">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+async function submitContent(formId) {
+  const text = document.getElementById(`${formId}-text`)?.value?.trim();
+  if (!text) return;
+  const body = {
+    text,
+    platform: document.getElementById(`${formId}-platform`)?.value || 'linkedin',
+    tags: (document.getElementById(`${formId}-tags`)?.value || '').split(',').map(s => s.trim()).filter(Boolean),
+  };
+  await fetch('/api/content', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  toggleForm(formId);
+  showToast(`✅ Queued: ${text.slice(0, 40)}${text.length > 40 ? '…' : ''}`);
+  await fetchAll();
 }
 
 // Init

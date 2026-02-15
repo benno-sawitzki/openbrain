@@ -530,6 +530,96 @@ main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
 
 .help-highlight { background: rgba(0,255,0,.25); border-radius: 2px; }
 
+/* Add forms */
+.add-form {
+  background: #1a1a1a;
+  border: 1px solid rgba(0,255,0,0.2);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  display: none;
+}
+.add-form.visible { display: block; }
+.add-form input, .add-form select, .add-form textarea {
+  background: #0a0a0a;
+  border: 1px solid #2a2a2a;
+  color: #e5e5e5;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  width: 100%;
+  font-family: inherit;
+}
+.add-form input:focus, .add-form textarea:focus, .add-form select:focus {
+  border-color: #00FF00;
+  outline: none;
+}
+.add-form .form-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.add-form .form-row > * { flex: 1; }
+.add-btn {
+  background: none;
+  border: 1px dashed rgba(0,255,0,0.3);
+  color: #00FF00;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+.add-btn:hover {
+  background: rgba(0,255,0,0.1);
+  border-style: solid;
+}
+.submit-btn {
+  background: rgba(0,255,0,0.15);
+  border: 1px solid #00FF00;
+  color: #00FF00;
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.submit-btn:hover { background: rgba(0,255,0,0.25); }
+.cancel-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+.cancel-btn:hover { color: var(--text); }
+.energy-toggle {
+  display: flex;
+  gap: 4px;
+}
+.energy-toggle button {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid #2a2a2a;
+  background: #0a0a0a;
+  color: #e5e5e5;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s;
+}
+.energy-toggle button.active {
+  border-color: #00FF00;
+  background: rgba(0,255,0,0.1);
+}
+.form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
 .help-footer {
   text-align: center;
   padding: 2rem 0 1rem;

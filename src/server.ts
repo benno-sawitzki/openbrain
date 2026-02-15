@@ -149,8 +149,81 @@ function parseWorkflows(output: string): any[] {
   return workflows;
 }
 
-// Move task to new status
+// Create task
 app.use(express.json());
+
+app.post('/api/tasks', (req, res) => {
+  const { content, energy, estimate, due, campaign, stake, tags } = req.body;
+  if (!content) return res.status(400).json({ error: 'content required' });
+  const tasksPath = p('.taskpipe', 'tasks.json');
+  const tasks = readJSON(tasksPath) || [];
+  const now = new Date().toISOString();
+  const task = {
+    id: crypto.randomUUID(),
+    content,
+    status: 'todo',
+    energy: energy || 'medium',
+    estimate: estimate || null,
+    due: due || null,
+    campaign: campaign || null,
+    stake: stake || null,
+    tags: tags || [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  tasks.push(task);
+  fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
+  res.json(task);
+});
+
+// Create lead
+app.post('/api/leads', (req, res) => {
+  const { name, email, company, source, value, stage, tags } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const leadsPath = p('.leadpipe', 'leads.json');
+  const leads = readJSON(leadsPath) || [];
+  const now = new Date().toISOString();
+  const lead = {
+    id: crypto.randomUUID(),
+    name,
+    email: email || null,
+    company: company || null,
+    source: source || 'other',
+    value: value || 0,
+    stage: stage || 'cold',
+    score: 0,
+    tags: tags || [],
+    touches: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  leads.push(lead);
+  fs.writeFileSync(leadsPath, JSON.stringify(leads, null, 2));
+  res.json(lead);
+});
+
+// Create content
+app.post('/api/content', (req, res) => {
+  const { text, platform, tags } = req.body;
+  if (!text) return res.status(400).json({ error: 'text required' });
+  const queuePath = p('.contentq', 'queue.json');
+  const queue = readJSON(queuePath) || [];
+  const now = new Date().toISOString();
+  const item = {
+    id: crypto.randomUUID(),
+    text,
+    platform: platform || 'linkedin',
+    status: 'draft',
+    tags: tags || [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  queue.push(item);
+  fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
+  res.json(item);
+});
+
+// Move task to new status
 
 app.post('/api/tasks/:id/move', (req, res) => {
   const { id } = req.params;
