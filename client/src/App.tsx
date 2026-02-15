@@ -9,6 +9,7 @@ import { ContentTab } from './tabs/Content';
 import { BrainTab } from './tabs/Brain';
 import { FeedTab } from './tabs/Feed';
 import { CalendarTab } from './tabs/Calendar';
+import { WorkflowsTab } from './tabs/Workflows';
 import { SystemTab } from './tabs/System';
 import { HelpDrawer } from './components/HelpDrawer';
 import { LoginPage } from './pages/Login';
@@ -23,6 +24,7 @@ const TABS = [
   { id: 'pipeline', label: 'Pipeline', icon: '\u25C9' },
   { id: 'content', label: 'Content', icon: '\u2756' },
   { id: 'calendar', label: 'Calendar', icon: '\u25A6' },
+  { id: 'workflows', label: 'Workflows', icon: '\u2699' },
   { id: 'brain', label: 'Brain', icon: '\u2B21' },
   { id: 'feed', label: 'Feed', icon: '\u25CE' },
   { id: 'system', label: 'System', icon: '\u2661' },
@@ -54,6 +56,7 @@ export default function App() {
   }, []);
   const [state, setState] = useState<AppState>(emptyState);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
@@ -61,12 +64,15 @@ export default function App() {
       setState(data);
     } catch (e) {
       console.error('Failed to fetch data', e);
+    } finally {
+      setInitialLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (auth.isCloudMode && !auth.user) return; // Don't fetch until logged in
-    if (auth.isCloudMode && !auth.workspace?.gateway_url) return; // Don't fetch until connected
+    if (auth.isCloudMode && !auth.user) return;
+    if (auth.isCloudMode && !auth.workspace?.gateway_url) return;
+    setInitialLoading(true);
     refresh();
     const id = setInterval(refresh, 30000);
     return () => clearInterval(id);
@@ -105,6 +111,30 @@ export default function App() {
         />
       );
     }
+  }
+
+  if (initialLoading) {
+    return (
+      <div className="min-h-dvh bg-background flex flex-col items-center justify-center gap-6">
+        <div className="relative">
+          <div className="landing-orbit" style={{ inset: '-14px' }}>
+            {[0, 1, 2].map(i => (
+              <span key={i} className="landing-orbit-dot" style={{ '--i': i } as React.CSSProperties} />
+            ))}
+          </div>
+          <div className="landing-orbit" style={{ inset: '-24px', animationDirection: 'reverse', animationDuration: '18s' }}>
+            {[0, 1, 2].map(i => (
+              <span key={i} className="landing-orbit-dot" style={{ '--i': i, opacity: 0.3 } as React.CSSProperties} />
+            ))}
+          </div>
+          <span className="text-5xl block">🧠</span>
+        </div>
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">Warming up the lobster...</p>
+          <p className="text-[11px] text-muted-foreground/50 font-mono mt-1">connecting to your agents</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -221,6 +251,7 @@ export default function App() {
         {tab === 'pipeline' && <PipelineTab leads={state.leads} onRefresh={refresh} notify={notify} setState={setState} />}
         {tab === 'content' && <ContentTab content={state.content} inbox={state.inbox} onRefresh={refresh} notify={notify} />}
         {tab === 'calendar' && <CalendarTab />}
+        {tab === 'workflows' && <WorkflowsTab notify={notify} />}
         {tab === 'brain' && <BrainTab />}
         {tab === 'feed' && <FeedTab activity={state.activity} onNavigate={(t) => setTab(t as TabId)} />}
         {tab === 'system' && <SystemTab agents={state.agents} notify={notify} />}
