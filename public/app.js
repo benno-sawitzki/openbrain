@@ -97,7 +97,7 @@ function renderDashboard() {
     </div>
     <div class="dashboard-grid">
       <div class="panel">
-        <div class="panel-title">Today's Tasks</div>
+        <div class="section-header"><div class="panel-title">Today's Tasks</div><span class="powered-by">⚡ taskpipe</span></div>
         ${sortedTasks.map((t, i) => `
           <div class="task-card energy-${t.energy || 'medium'} ${t.status === 'done' ? 'done' : ''}">
             <div class="task-title">
@@ -114,7 +114,7 @@ function renderDashboard() {
         `).join('')}
       </div>
       <div class="panel">
-        <div class="panel-title">Pipeline Overview</div>
+        <div class="section-header"><div class="panel-title">Pipeline Overview</div><span class="powered-by">🎯 leadpipe</span></div>
         <div class="mini-kanban">
           ${stages.filter(st => !['lost'].includes(st)).slice(0, 6).map(st => `
             <div class="mini-stage">
@@ -133,7 +133,7 @@ function renderDashboard() {
         `).join('')}
       </div>
       <div class="panel">
-        <div class="panel-title">Content Queue</div>
+        <div class="section-header"><div class="panel-title">Content Queue</div><span class="powered-by">📝 contentq</span></div>
         ${state.content.map(c => `
           <div class="content-preview">
             <span class="badge badge-${c.status}">${c.status}</span> ${esc(c.platform)}
@@ -184,7 +184,7 @@ async function moveLead(leadId, newStage) {
 function renderPipeline() {
   const el = document.getElementById('pipeline');
   
-  el.innerHTML = `<div class="kanban">${PIPELINE_STAGES.map(stage => {
+  el.innerHTML = `<div class="section-header"><h2 style="margin:0 0 12px">Pipeline</h2><span class="powered-by">🎯 leadpipe</span></div><div class="kanban">${PIPELINE_STAGES.map(stage => {
     const leads = state.leads.filter(l => l.stage === stage);
     const total = leads.reduce((s, l) => s + (l.value || 0), 0);
     return `
@@ -279,6 +279,7 @@ function renderContent() {
   });
 
   el.innerHTML = `
+    <div class="section-header"><h2 style="margin:0 0 12px">Content Queue</h2><span class="powered-by">📝 contentq</span></div>
     <div class="content-table">
       <div class="content-row" style="font-weight:600;color:var(--muted);font-size:.75rem;cursor:default">
         <div>Status</div><div>Platform</div><div>Content</div><div>Created</div><div>Scheduled</div>
@@ -339,7 +340,7 @@ function renderActivity() {
 
   el.innerHTML = `
     <div class="panel" style="margin-bottom:1.5rem">
-      <div class="panel-title">Daily Activity (last 14 days)</div>
+      <div class="section-header"><div class="panel-title">Daily Activity (last 14 days)</div><span class="powered-by">📊 taskpipe</span></div>
       <div class="activity-chart">
         ${bars.map(b => `
           <div class="activity-bar-wrap">
@@ -405,6 +406,7 @@ function renderInbox() {
   const filtered = inboxFilter === 'all' ? items : items.filter(i => i.type === inboxFilter);
 
   el.innerHTML = `
+    <div class="section-header"><h2 style="margin:0 0 12px">Inbox</h2><span class="powered-by">📝 contentq</span></div>
     <div class="inbox-filters">
       ${['all', 'social', 'inspo', 'idea', 'general'].map(f => `
         <button class="inbox-filter-btn ${inboxFilter === f ? 'active' : ''}" onclick="inboxFilter='${f}';renderInbox()">
@@ -461,7 +463,7 @@ function renderAgents() {
       <div style="color:var(--accent);font-weight:600">✅ Antfarm Connected</div>
     </div>
     <div class="panel">
-      <div class="panel-title">Workflows</div>
+      <div class="section-header"><div class="panel-title">Workflows</div><span class="powered-by">🐜 antfarm</span></div>
       ${workflows.length ? workflows.map(w => `
         <div class="agent-card">
           <div class="agent-name">${esc(w.name || w.id || 'Workflow')}</div>

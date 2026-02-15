@@ -383,3 +383,32 @@ main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
 .agent-status { font-size: .8125rem; margin-top: .25rem; }
 .agent-task { font-size: .8125rem; color: var(--muted); margin-top: .25rem; }
 .agent-meta { font-size: .75rem; color: var(--muted); }
+
+/* Powered-by badges */
+.powered-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: #00FF00;
+  opacity: 0.5;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border: 1px solid rgba(0, 255, 0, 0.2);
+  border-radius: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+  transition: opacity 0.2s;
+}
+.powered-by:hover {
+  opacity: 1;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.section-header h2, .section-header h3 {
+  margin: 0;
+}
