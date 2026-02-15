@@ -38,6 +38,7 @@ function render() {
   renderInbox();
   renderAgents();
   renderActivity();
+  renderHelp();
 }
 
 // Helpers
@@ -713,6 +714,195 @@ function renderAgents() {
       </div>
     ` : ''}
   `;
+}
+
+// === HELP / KNOWLEDGE BASE ===
+const HELP_SECTIONS = [
+  {
+    title: '🚀 Quick Start',
+    content: [
+      { type: 'text', text: 'Your daily routine — just 3 commands:' },
+      { type: 'cmd', cmd: 'taskpipe briefing', desc: 'full day overview' },
+      { type: 'cmd', cmd: 'taskpipe now', desc: 'the one thing to do next' },
+      { type: 'cmd', cmd: 'taskpipe wins', desc: 'celebrate what you did' },
+      { type: 'text', text: 'Dashboard: <a href="http://192.168.178.22:4000" style="color:var(--accent)">http://192.168.178.22:4000</a>' },
+      { type: 'text', text: 'Everything lives in <code class="help-cmd">~/clawd/marketing/</code>' },
+    ]
+  },
+  {
+    title: '💬 WhatsApp Triggers (say these to A.M.A.)',
+    content: [
+      { type: 'item', text: 'Send screenshot + "save for social" → saves to content inbox (social)' },
+      { type: 'item', text: 'Send image + "inspo" or "save for inspo" → saves to inspiration folder' },
+      { type: 'item', text: 'Send text/voice + "save idea" → idea saved' },
+      { type: 'item', text: 'Send anything + "save for later" → general inbox' },
+      { type: 'item', text: '"add task: [description]" → creates task' },
+      { type: 'item', text: '"add lead: [name]" → creates lead' },
+      { type: 'item', text: '"post this to LinkedIn" → queues content' },
+    ]
+  },
+  {
+    title: '✅ Task Management (taskpipe)',
+    content: [
+      { type: 'cmd', cmd: 'taskpipe add "task description"', desc: 'add a task' },
+      { type: 'cmd', cmd: 'taskpipe add "task" --due tomorrow --energy high --estimate 30', desc: 'with details' },
+      { type: 'cmd', cmd: 'taskpipe list', desc: 'all open tasks' },
+      { type: 'cmd', cmd: 'taskpipe list --today', desc: 'due today' },
+      { type: 'cmd', cmd: 'taskpipe done <id>', desc: 'mark complete' },
+      { type: 'cmd', cmd: 'taskpipe done <id> --time 20 --difficulty easy', desc: 'with tracking' },
+      { type: 'cmd', cmd: 'taskpipe edit <id> --due friday --priority high', desc: 'edit task' },
+      { type: 'cmd', cmd: 'taskpipe delete <id>', desc: 'remove task' },
+      { type: 'cmd', cmd: 'taskpipe now', desc: 'what to do next' },
+      { type: 'cmd', cmd: 'taskpipe quick', desc: 'tasks under 15 min' },
+      { type: 'cmd', cmd: 'taskpipe stuck', desc: 'tasks you\'ve been avoiding' },
+      { type: 'cmd', cmd: 'taskpipe plan --2h', desc: 'plan next 2 hours' },
+      { type: 'cmd', cmd: 'taskpipe plan --calendar', desc: 'plan around meetings' },
+      { type: 'cmd', cmd: 'taskpipe focus "project name"', desc: 'lock in' },
+      { type: 'cmd', cmd: 'taskpipe unfocus', desc: 'back to everything' },
+      { type: 'cmd', cmd: 'taskpipe streak', desc: 'your streak' },
+      { type: 'cmd', cmd: 'taskpipe stakes', desc: 'what\'s at risk' },
+      { type: 'cmd', cmd: 'taskpipe remind <id> "tomorrow 9am"', desc: 'set reminder' },
+      { type: 'cmd', cmd: 'taskpipe reminders', desc: 'upcoming reminders' },
+      { type: 'cmd', cmd: 'taskpipe ghost', desc: 'auto-suggested tasks' },
+      { type: 'cmd', cmd: 'taskpipe review', desc: 'weekly review' },
+      { type: 'cmd', cmd: 'taskpipe briefing', desc: 'morning briefing' },
+      { type: 'cmd', cmd: 'taskpipe setup', desc: 'configure notifications' },
+      { type: 'cmd', cmd: 'taskpipe activity status', desc: 'your rhythm profile' },
+    ]
+  },
+  {
+    title: '🎯 Lead Management (leadpipe)',
+    content: [
+      { type: 'cmd', cmd: 'leadpipe add "Name" --email x --source linkedin --value 3500', desc: 'add lead' },
+      { type: 'cmd', cmd: 'leadpipe list', desc: 'all leads' },
+      { type: 'cmd', cmd: 'leadpipe list --stage hot', desc: 'filter by stage' },
+      { type: 'cmd', cmd: 'leadpipe move <id> --stage hot', desc: 'change stage' },
+      { type: 'cmd', cmd: 'leadpipe touch <id> "Had intro call" --type call', desc: 'log interaction' },
+      { type: 'cmd', cmd: 'leadpipe follow-up <id> "2026-02-20"', desc: 'set follow-up' },
+      { type: 'cmd', cmd: 'leadpipe due', desc: 'who needs attention today' },
+      { type: 'cmd', cmd: 'leadpipe stale', desc: 'forgotten leads (7+ days)' },
+      { type: 'cmd', cmd: 'leadpipe context <id>', desc: 'everything about one lead' },
+      { type: 'cmd', cmd: 'leadpipe stats', desc: 'pipeline overview' },
+      { type: 'cmd', cmd: 'leadpipe funnel', desc: 'conversion rates' },
+      { type: 'cmd', cmd: 'leadpipe score <id> --add 20 --reason "replied"', desc: 'adjust score' },
+      { type: 'cmd', cmd: 'leadpipe search "query"', desc: 'search leads' },
+      { type: 'cmd', cmd: 'leadpipe export --csv', desc: 'export data' },
+      { type: 'text', text: 'Pipeline stages: <code class="help-cmd">cold → warm → hot → proposal → won → lost</code>' },
+    ]
+  },
+  {
+    title: '📝 Content Queue (contentq)',
+    content: [
+      { type: 'cmd', cmd: 'contentq add "post text here"', desc: 'add to queue' },
+      { type: 'cmd', cmd: 'contentq add --from draft.md', desc: 'from file' },
+      { type: 'cmd', cmd: 'contentq list', desc: 'all queued content' },
+      { type: 'cmd', cmd: 'contentq show <id>', desc: 'view details' },
+      { type: 'cmd', cmd: 'contentq edit <id> "new text"', desc: 'edit' },
+      { type: 'cmd', cmd: 'contentq schedule <id> "2026-02-17 09:00"', desc: 'schedule' },
+      { type: 'cmd', cmd: 'contentq publish <id>', desc: 'publish now (via Late API)' },
+      { type: 'cmd', cmd: 'contentq inbox', desc: 'browse saved media/ideas' },
+      { type: 'cmd', cmd: 'contentq inbox --social', desc: 'social screenshots' },
+      { type: 'cmd', cmd: 'contentq inbox --inspo', desc: 'inspiration' },
+      { type: 'cmd', cmd: 'contentq inbox --ideas', desc: 'text ideas' },
+      { type: 'cmd', cmd: 'contentq inbox promote <id>', desc: 'move to queue as draft' },
+      { type: 'cmd', cmd: 'contentq stats', desc: 'overview' },
+      { type: 'cmd', cmd: 'contentq platforms', desc: 'configured platforms' },
+    ]
+  },
+  {
+    title: '🏗️ Architecture',
+    content: [
+      { type: 'item', text: 'CLI tools are the engine, dashboard is the display' },
+      { type: 'item', text: 'All data is local JSON files in <code class="help-cmd">~/clawd/marketing/</code>' },
+      { type: 'item', text: '<code class="help-cmd">.taskpipe/</code> — tasks, activity, patterns' },
+      { type: 'item', text: '<code class="help-cmd">.leadpipe/</code> — leads, pipeline' },
+      { type: 'item', text: '<code class="help-cmd">.contentq/</code> — content queue, inbox' },
+      { type: 'item', text: 'Dashboard reads the same files CLI tools write' },
+      { type: 'item', text: 'Drag-and-drop in dashboard writes back to files' },
+      { type: 'item', text: 'Agent (A.M.A.) orchestrates via CLI commands' },
+      { type: 'item', text: 'Antfarm runs multi-agent workflows' },
+    ]
+  },
+  {
+    title: '⚡ Proactive Check-ins',
+    content: [
+      { type: 'item', text: '☀️ 9:00am — Morning briefing' },
+      { type: 'item', text: '🔥 12:30pm — Midday pulse' },
+      { type: 'item', text: '🏁 6:00pm — End of day wrap' },
+      { type: 'item', text: 'Smart nudges: streak protection, stale tasks, overdue leads' },
+      { type: 'item', text: 'Schedule adapts to your rhythm over time' },
+    ]
+  },
+  {
+    title: '🔧 System Info',
+    content: [
+      { type: 'item', text: 'Dashboard: <a href="http://192.168.178.22:4000" style="color:var(--accent)">http://192.168.178.22:4000</a> (port 4000)' },
+      { type: 'item', text: 'Data: <code class="help-cmd">~/clawd/marketing/</code>' },
+      { type: 'item', text: 'Tools: <code class="help-cmd">~/clawd/tools/</code> (contentq, leadpipe, taskpipe, marketing-hq)' },
+      { type: 'item', text: 'GitHub: benno-sawitzki/contentq, /leadpipe, /taskpipe, /marketing-hq' },
+      { type: 'item', text: 'Powered by: OpenClaw + A.M.A. (Ghost in the Machine 👻⚡)' },
+    ]
+  },
+];
+
+function renderHelp() {
+  const el = document.getElementById('help');
+  el.innerHTML = `
+    <div class="section-header"><h2 style="margin:0">📚 Knowledge Base</h2><span class="powered-by">👻⚡ A.M.A.</span></div>
+    <input type="text" class="help-search" placeholder="Search commands, triggers, anything..." id="help-search-input">
+    <div id="help-sections">
+      ${HELP_SECTIONS.map((section, i) => `
+        <div class="help-section" data-section="${i}">
+          <div class="help-section-header" onclick="this.parentElement.classList.toggle('collapsed')">
+            <span>${section.title}</span>
+            <span class="help-chevron">▼</span>
+          </div>
+          <div class="help-body">
+            ${section.content.map(item => {
+              if (item.type === 'cmd') {
+                return `<div class="help-entry"><code class="help-cmd">${item.cmd}</code> <span class="help-desc">— ${item.desc}</span></div>`;
+              } else if (item.type === 'item') {
+                return `<div class="help-entry help-item">${item.text}</div>`;
+              } else {
+                return `<div class="help-entry help-text">${item.text}</div>`;
+              }
+            }).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="help-footer">powered by Agent Smith 👻⚡</div>
+  `;
+
+  document.getElementById('help-search-input').addEventListener('keyup', function() {
+    const query = this.value.toLowerCase().trim();
+    document.querySelectorAll('.help-section').forEach(section => {
+      if (!query) {
+        section.style.display = '';
+        section.classList.remove('collapsed');
+        section.querySelectorAll('.help-highlight').forEach(h => {
+          h.outerHTML = h.textContent;
+        });
+        return;
+      }
+      const text = section.textContent.toLowerCase();
+      if (text.includes(query)) {
+        section.style.display = '';
+        section.classList.remove('collapsed');
+        // Highlight matches in entries
+        section.querySelectorAll('.help-entry').forEach(entry => {
+          const entryText = entry.textContent.toLowerCase();
+          if (entryText.includes(query)) {
+            entry.style.display = '';
+          } else {
+            entry.style.display = 'none';
+          }
+        });
+      } else {
+        section.style.display = 'none';
+      }
+    });
+  });
 }
 
 // Init
