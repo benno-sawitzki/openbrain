@@ -63,12 +63,7 @@ function renderDashboard() {
   const s = state.stats;
   const el = document.getElementById('dashboard');
   
-  const todoTasks = state.tasks.filter(t => t.status !== 'done');
-  const doneTasks = state.tasks.filter(t => t.status === 'done');
-  const sortedTasks = [...todoTasks.sort((a, b) => {
-    const prio = { high: 0, medium: 1, low: 2 };
-    return (prio[a.priority] || 1) - (prio[b.priority] || 1);
-  }), ...doneTasks];
+  const sortedTasks = [...state.tasks];
 
   // Pipeline stages
   const stages = ['cold', 'warm', 'hot', 'proposal', 'won', 'lost'];
@@ -99,8 +94,8 @@ function renderDashboard() {
     <div class="dashboard-grid">
       <div class="panel">
         <div class="section-header"><div class="panel-title">Today's Tasks</div><span class="powered-by">⚡ taskpipe</span></div>
-        ${sortedTasks.map((t, i) => `
-          <div class="task-card energy-${t.energy || 'medium'} ${t.status === 'done' ? 'done' : ''}">
+        ${sortedTasks.slice(0, 3).map((t, i) => `
+          <div class="task-card dash-task-card energy-${t.energy || 'medium'} ${t.status === 'done' ? 'done' : ''}" draggable="true" data-task-id="${t.id}">
             <div class="task-title">
               ${i === 0 && t.status !== 'done' ? '<span class="badge badge-now">NOW</span> ' : ''}
               ${t.status === 'done' ? '✅ ' : ''}${esc(t.content)}
@@ -113,6 +108,21 @@ function renderDashboard() {
             </div>
           </div>
         `).join('')}
+        ${sortedTasks.length > 3 ? `
+          <div id="dash-tasks-more" style="display:none">
+            ${sortedTasks.slice(3).map((t, i) => `
+              <div class="task-card dash-task-card energy-${t.energy || 'medium'} ${t.status === 'done' ? 'done' : ''}" draggable="true" data-task-id="${t.id}">
+                <div class="task-title">${t.status === 'done' ? '✅ ' : ''}${esc(t.content)}</div>
+                <div class="task-meta">
+                  <span>${energyEmoji(t.energy)} ${t.energy || 'medium'}</span>
+                  ${t.estimate ? `<span>${t.estimate}m</span>` : ''}
+                  ${t.due ? `<span>📅 ${t.due}</span>` : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <button class="show-more-btn" onclick="const m=document.getElementById('dash-tasks-more');const v=m.style.display==='none';m.style.display=v?'block':'none';this.textContent=v?'Show less ↑':'+ ${sortedTasks.length - 3} more tasks'">+ ${sortedTasks.length - 3} more tasks</button>
+        ` : ''}
       </div>
       <div class="panel">
         <div class="section-header"><div class="panel-title">Pipeline Overview</div><span class="powered-by">🎯 leadpipe</span></div>
@@ -149,6 +159,79 @@ function renderDashboard() {
       <div class="stakes-bar">⚠️ €${s.stakeRisk.toLocaleString()} at risk — ${s.overdueStakes} task${s.overdueStakes !== 1 ? 's' : ''} overdue</div>
     ` : ''}
   `;
+
+  // Dashboard drag-to-reorder
+  let dragSrcId = null;
+  el.querySelectorAll('.dash-task-card').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      dragSrcId = card.dataset.taskId;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragSrcId);
+      requestAnimationFrame(() => card.classList.add('dragging'));
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      el.querySelectorAll('.dash-task-card').forEach(c => {
+        c.classList.remove('drag-insert-above', 'drag-insert-below');
+      });
+      dragSrcId = null;
+    });
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (card.dataset.taskId === dragSrcId) return;
+      el.querySelectorAll('.dash-task-card').forEach(c => {
+        c.classList.remove('drag-insert-above', 'drag-insert-below');
+      });
+      const rect = card.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (e.clientY < midY) {
+        card.classList.add('drag-insert-above');
+      } else {
+        card.classList.add('drag-insert-below');
+      }
+    });
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-insert-above', 'drag-insert-below');
+    });
+    card.addEventListener('drop', async e => {
+      e.preventDefault();
+      card.classList.remove('drag-insert-above', 'drag-insert-below');
+      const srcId = e.dataTransfer.getData('text/plain');
+      const targetId = card.dataset.taskId;
+      if (srcId === targetId) return;
+
+      // Build new order
+      const ids = sortedTasks.map(t => t.id);
+      const srcIdx = ids.indexOf(srcId);
+      if (srcIdx === -1) return;
+      ids.splice(srcIdx, 1);
+      let targetIdx = ids.indexOf(targetId);
+      const rect = card.getBoundingClientRect();
+      if (e.clientY >= rect.top + rect.height / 2) targetIdx++;
+      ids.splice(targetIdx, 0, srcId);
+
+      // Reorder state locally
+      const taskMap = new Map(state.tasks.map(t => [t.id, t]));
+      const reordered = ids.map(id => taskMap.get(id)).filter(Boolean);
+      for (const t of taskMap.values()) {
+        if (!ids.includes(t.id)) reordered.push(t);
+      }
+      state.tasks = reordered;
+      render();
+
+      try {
+        await fetch('/api/tasks/reorder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: reordered.map(t => t.id) })
+        });
+        showToast('✅ Tasks reordered');
+      } catch {
+        showToast('❌ Failed to save order');
+      }
+    });
+  });
 }
 
 // === TASKS ===
@@ -171,6 +254,15 @@ async function moveTask(taskId, newStatus) {
   return res.json();
 }
 
+async function deleteTask(taskId, taskName) {
+  // no confirmation, just delete
+  const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+  if (res.ok) {
+    showToast(`🗑️ Deleted: ${taskName}`);
+    await fetchAll();
+  }
+}
+
 function renderTasks() {
   const el = document.getElementById('tasks');
   const todayStr = today();
@@ -191,7 +283,7 @@ function renderTasks() {
             if (key === 'todo' && firstTodo) firstTodo = false;
             const overdue = t.due && t.due < todayStr && key !== 'done';
             return `
-              <div class="task-card energy-${t.energy || 'medium'}" draggable="true" data-task-id="${t.id}">
+              <div class="task-card energy-${t.energy || 'medium'}" draggable="true" data-task-id="${t.id}" onclick="if(!this._wasDragged)this.classList.toggle('expanded')">
                 <div class="task-title">
                   ${isNow ? '<span class="badge badge-now">NOW</span> ' : ''}
                   ${energyEmoji(t.energy)} ${esc(t.content)}
@@ -203,11 +295,31 @@ function renderTasks() {
                   ${t.stake ? '<span>💰</span>' : ''}
                   ${(t.tags || []).map(tag => `<span class="badge" style="background:rgba(255,255,255,.08);color:var(--muted)">${esc(tag)}</span>`).join('')}
                 </div>
-                <div class="task-mobile-move lead-mobile-move">
-                  <select class="move-select" onchange="handleMobileTaskMove(this, '${t.id}', '${esc(t.content).replace(/'/g, "\\'")}')">
-                    <option value="">Move to…</option>
-                    ${TASK_STATUSES.filter(s => s.key !== key).map(s => `<option value="${s.key}">${s.label}</option>`).join('')}
-                  </select>
+                <div class="task-detail">
+                  ${t.stake ? `<div><strong>💰 Stake:</strong> ${esc(t.stake)}</div>` : ''}
+                  ${t.campaign ? `<div><strong>Campaign:</strong> ${esc(t.campaign)}</div>` : ''}
+                  ${t.energy ? `<div><strong>Energy:</strong> ${t.energy}</div>` : ''}
+                  ${t.estimate ? `<div><strong>Estimate:</strong> ${t.estimate}m${t.actual ? ` (actual: ${t.actual}m)` : ''}</div>` : ''}
+                  ${t.difficulty ? `<div><strong>Difficulty:</strong> ${t.difficulty}</div>` : ''}
+                  ${t.due ? `<div><strong>Due:</strong> ${t.due}</div>` : ''}
+                  ${Object.keys(t.links || {}).length ? `<div><strong>Links:</strong> ${Object.entries(t.links).map(([k,v]) => `${k}: ${v}`).join(', ')}</div>` : ''}
+                  ${t.tags?.length ? `<div><strong>Tags:</strong> ${t.tags.join(', ')}</div>` : ''}
+                  ${t.delegatedTo ? `<div><strong>Delegated to:</strong> ${esc(t.delegatedTo)}</div>` : ''}
+                  ${t.reminders?.length ? `<div><strong>Reminders:</strong> ${t.reminders.map(r => r.at?.slice(0, 16)).join(', ')}</div>` : ''}
+                  ${t.notes?.length ? `<div style="margin-top:.5rem"><strong>Notes:</strong>${t.notes.map(n => `<div>• ${esc(n)}</div>`).join('')}</div>` : ''}
+                  <div style="margin-top:.5rem;color:var(--muted);font-size:.7rem">
+                    Created: ${t.createdAt?.slice(0, 10)} · Updated: ${t.updatedAt?.slice(0, 10)}
+                    ${t.completedAt ? ` · Completed: ${t.completedAt.slice(0, 10)}` : ''}
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+                  <div class="task-mobile-move lead-mobile-move" style="flex:1">
+                    <select class="move-select" onchange="handleMobileTaskMove(this, '${t.id}', '${esc(t.content).replace(/'/g, "\\'")}')">
+                      <option value="">Move to…</option>
+                      ${TASK_STATUSES.filter(s => s.key !== key).map(s => `<option value="${s.key}">${s.label}</option>`).join('')}
+                    </select>
+                  </div>
+                  <button class="delete-task-btn" onclick="deleteTask('${t.id}', '${esc(t.content).replace(/'/g, "\\'")}')" title="Delete task">🗑️</button>
                 </div>
               </div>
             `;

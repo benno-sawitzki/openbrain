@@ -173,6 +173,46 @@ app.post('/api/tasks/:id/move', (req, res) => {
   res.json(task);
 });
 
+// Delete task
+app.delete('/api/tasks/:id', (req, res) => {
+  const { id } = req.params;
+  const tasksPath = p('.taskpipe', 'tasks.json');
+  const tasks = readJSON(tasksPath);
+  if (!tasks) return res.status(500).json({ error: 'could not read tasks' });
+  const idx = tasks.findIndex((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'task not found' });
+  const removed = tasks.splice(idx, 1)[0];
+  fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
+  res.json(removed);
+});
+
+// Reorder tasks
+app.post('/api/tasks/reorder', (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
+
+  const tasksPath = p('.taskpipe', 'tasks.json');
+  const tasks = readJSON(tasksPath);
+  if (!tasks) return res.status(500).json({ error: 'could not read tasks' });
+
+  const taskMap = new Map(tasks.map((t: any) => [t.id, t]));
+  const reordered: any[] = [];
+  for (const id of ids) {
+    const task = taskMap.get(id);
+    if (task) {
+      reordered.push(task);
+      taskMap.delete(id);
+    }
+  }
+  // Append any tasks not in the ids array
+  for (const task of taskMap.values()) {
+    reordered.push(task);
+  }
+
+  fs.writeFileSync(tasksPath, JSON.stringify(reordered, null, 2));
+  res.json({ ok: true });
+});
+
 // Move lead to new stage
 
 app.post('/api/leads/:id/move', (req, res) => {
