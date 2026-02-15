@@ -55,16 +55,26 @@ function dateGroup(ts: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
-export function FeedTab({ activity }: { activity: any }) {
+const TAB_FOR_TYPE: Record<string, string> = {
+  task: 'tasks',
+  lead: 'pipeline',
+  content: 'content',
+  activity: 'system',
+};
+
+export function FeedTab({ activity, onNavigate }: { activity: any; onNavigate?: (tab: string) => void }) {
   const [data, setData] = useState<FeedData | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
 
   useEffect(() => {
-    fetchFeed().then(d => {
+    const load = () => fetchFeed().then(d => {
       setData(d);
       setLoading(false);
     }).catch(() => setLoading(false));
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
   }, []);
 
   // Activity chart data
@@ -241,7 +251,8 @@ export function FeedTab({ activity }: { activity: any }) {
                 {groupItems.map((item, i) => {
                   const color = TYPE_COLORS[item.type] || palette.muted;
                   return (
-                    <div key={i} className="glass-card rounded-lg px-4 py-3 flex items-start gap-3 transition-colors hover:bg-white/[0.03]">
+                    <div key={i} onClick={() => onNavigate?.(TAB_FOR_TYPE[item.type] || 'dashboard')}
+                      className="glass-card rounded-lg px-4 py-3 flex items-start gap-3 transition-colors hover:bg-white/[0.03] cursor-pointer">
                       <span className="text-sm mt-0.5 shrink-0">{item.icon}</span>
                       <div className="min-w-0 flex-1">
                         <div className="text-[13px] font-medium">{item.title}</div>

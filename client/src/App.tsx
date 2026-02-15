@@ -222,7 +222,7 @@ export default function App() {
         {tab === 'content' && <ContentTab content={state.content} inbox={state.inbox} onRefresh={refresh} notify={notify} />}
         {tab === 'calendar' && <CalendarTab />}
         {tab === 'brain' && <BrainTab />}
-        {tab === 'feed' && <FeedTab activity={state.activity} />}
+        {tab === 'feed' && <FeedTab activity={state.activity} onNavigate={(t) => setTab(t as TabId)} />}
         {tab === 'system' && <SystemTab agents={state.agents} notify={notify} />}
       </main>
     </div>
