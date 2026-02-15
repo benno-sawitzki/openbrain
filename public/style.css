@@ -358,7 +358,7 @@ main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
 .dash-task-card.drag-insert-below { border-bottom: 2px solid var(--accent) !important; }
 
 /* Mobile move dropdown */
-.lead-mobile-move { display: none; margin-top: .375rem; }
+.lead-mobile-move { display: block; margin-top: .375rem; }
 .move-select {
   background: var(--card); color: var(--text); border: 1px solid var(--border);
   border-radius: .375rem; padding: .25rem .5rem; font-size: .75rem; width: 100%; cursor: pointer;
@@ -618,6 +618,54 @@ main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
   gap: 8px;
   align-items: center;
   margin-top: 4px;
+}
+
+/* Edit forms */
+.edit-form {
+  background: #1a1a1a;
+  border: 1px solid rgba(0,255,0,0.2);
+  border-radius: 8px;
+  padding: 12px;
+}
+.edit-form input, .edit-form select, .edit-form textarea {
+  background: #0a0a0a;
+  border: 1px solid #2a2a2a;
+  color: #e5e5e5;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  width: 100%;
+  font-family: inherit;
+}
+.edit-form input:focus, .edit-form textarea:focus {
+  border-color: #00FF00;
+  outline: none;
+}
+.edit-form .form-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.edit-form .form-row > * { flex: 1; }
+.edit-form .form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+.edit-btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  opacity: 0.4;
+  transition: opacity 0.2s, border-color 0.2s;
+}
+.edit-btn:hover {
+  opacity: 1;
+  border-color: #00FF00;
 }
 
 .help-footer {

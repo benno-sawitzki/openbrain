@@ -223,6 +223,48 @@ app.post('/api/content', (req, res) => {
   res.json(item);
 });
 
+// Update task
+app.put('/api/tasks/:id', (req, res) => {
+  const { id } = req.params;
+  const tasksPath = p('.taskpipe', 'tasks.json');
+  const tasks = readJSON(tasksPath);
+  if (!tasks) return res.status(500).json({ error: 'could not read tasks' });
+  const task = tasks.find((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
+  if (!task) return res.status(404).json({ error: 'task not found' });
+  const updates = req.body;
+  Object.assign(task, updates, { updatedAt: new Date().toISOString() });
+  fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
+  res.json(task);
+});
+
+// Update lead
+app.put('/api/leads/:id', (req, res) => {
+  const { id } = req.params;
+  const leadsPath = p('.leadpipe', 'leads.json');
+  const leads = readJSON(leadsPath);
+  if (!leads) return res.status(500).json({ error: 'could not read leads' });
+  const lead = leads.find((l: any) => id.length < 36 ? l.id.startsWith(id) : l.id === id);
+  if (!lead) return res.status(404).json({ error: 'lead not found' });
+  const updates = req.body;
+  Object.assign(lead, updates, { updatedAt: new Date().toISOString() });
+  fs.writeFileSync(leadsPath, JSON.stringify(leads, null, 2));
+  res.json(lead);
+});
+
+// Update content
+app.put('/api/content/:id', (req, res) => {
+  const { id } = req.params;
+  const queuePath = p('.contentq', 'queue.json');
+  const queue = readJSON(queuePath);
+  if (!queue) return res.status(500).json({ error: 'could not read content' });
+  const item = queue.find((c: any) => id.length < 36 ? c.id.startsWith(id) : c.id === id);
+  if (!item) return res.status(404).json({ error: 'content not found' });
+  const updates = req.body;
+  Object.assign(item, updates, { updatedAt: new Date().toISOString() });
+  fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
+  res.json(item);
+});
+
 // Move task to new status
 
 app.post('/api/tasks/:id/move', (req, res) => {

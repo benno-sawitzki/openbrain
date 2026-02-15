@@ -322,6 +322,7 @@ function renderTasks() {
                       ${TASK_STATUSES.filter(s => s.key !== key).map(s => `<option value="${s.key}">${s.label}</option>`).join('')}
                     </select>
                   </div>
+                  <button class="edit-btn" onclick="editTask('${t.id}', event)" title="Edit task">✏️</button>
                   <button class="delete-task-btn" onclick="deleteTask('${t.id}', '${esc(t.content).replace(/'/g, "\\'")}')" title="Delete task">🗑️</button>
                 </div>
               </div>
@@ -433,11 +434,12 @@ function renderPipeline() {
             <div><span class="lead-name">${esc(l.name)}</span></div>
             <div><span class="lead-value">€${(l.value || 0).toLocaleString()}</span></div>
             <div class="lead-meta">${esc(l.source)} ${l.tags?.length ? '· ' + l.tags.join(', ') : ''}</div>
-            <div class="lead-mobile-move">
-              <select class="move-select" onchange="handleMobileMove(this, '${l.id}', '${esc(l.name)}')" onclick="event.stopPropagation()">
+            <div class="lead-mobile-move" style="display:flex;gap:6px;align-items:center">
+              <select class="move-select" style="flex:1" onchange="handleMobileMove(this, '${l.id}', '${esc(l.name)}')" onclick="event.stopPropagation()">
                 <option value="">Move to…</option>
                 ${PIPELINE_STAGES.filter(s => s !== stage).map(s => `<option value="${s}">${s}</option>`).join('')}
               </select>
+              <button class="edit-btn" onclick="editLead('${l.id}', event)" title="Edit lead">✏️</button>
             </div>
             <div class="lead-detail">
               ${l.company ? `<div>Company: ${esc(l.company)}</div>` : ''}
@@ -521,10 +523,10 @@ function renderContent() {
         <div>Status</div><div>Platform</div><div>Content</div><div>Created</div><div>Scheduled</div>
       </div>
       ${sorted.map(c => `
-        <div class="content-row" onclick="this.classList.toggle('expanded')">
+        <div class="content-row" data-content-id="${c.id}" onclick="this.classList.toggle('expanded')">
           <div><span class="badge badge-${c.status}">${statusEmoji(c.status)} ${c.status}</span></div>
           <div>${esc(c.platform)}</div>
-          <div>${esc((c.text || '').slice(0, 100))}${(c.text || '').length > 100 ? '…' : ''}</div>
+          <div style="display:flex;align-items:center;gap:6px">${esc((c.text || '').slice(0, 100))}${(c.text || '').length > 100 ? '…' : ''} <button class="edit-btn" onclick="editContent('${c.id}', event)" title="Edit content">✏️</button></div>
           <div style="font-size:.75rem;color:var(--muted)">${c.createdAt?.slice(0, 10) || ''}</div>
           <div style="font-size:.75rem;color:var(--muted)">${c.scheduledFor || '—'}</div>
           <div class="content-full">${esc(c.text)}</div>
@@ -1043,6 +1045,170 @@ async function submitContent(formId) {
   showToast(`✅ Queued: ${text.slice(0, 40)}${text.length > 40 ? '…' : ''}`);
   await fetchAll();
 }
+
+// === INLINE EDITING ===
+let editEnergy = 'medium';
+
+function setEditEnergy(btn, val) {
+  editEnergy = val;
+  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function editTask(id, evt) {
+  if (evt) evt.stopPropagation();
+  const task = state.tasks.find(t => t.id === id);
+  if (!task) return;
+  editEnergy = task.energy || 'medium';
+  const shortId = id.slice(0, 8);
+  // Find the card in both tasks and dashboard
+  const cards = document.querySelectorAll(`[data-task-id="${id}"]`);
+  cards.forEach(card => {
+    card.onclick = null;
+    card.draggable = false;
+    card.innerHTML = `
+      <div class="edit-form" style="border:none;padding:0;background:none">
+        <div class="form-row">
+          <input type="text" id="edit-task-${shortId}-content" value="${esc(task.content)}" placeholder="Task description…">
+          <div class="energy-toggle">
+            <button type="button" onclick="event.stopPropagation();setEditEnergy(this,'high')" data-energy="high" ${editEnergy==='high'?'class="active"':''}>⚡High</button>
+            <button type="button" onclick="event.stopPropagation();setEditEnergy(this,'medium')" data-energy="medium" ${editEnergy==='medium'?'class="active"':''}>🔋Med</button>
+            <button type="button" onclick="event.stopPropagation();setEditEnergy(this,'low')" data-energy="low" ${editEnergy==='low'?'class="active"':''}>🪫Low</button>
+          </div>
+          <input type="number" id="edit-task-${shortId}-estimate" value="${task.estimate||''}" placeholder="min" style="max-width:70px">
+        </div>
+        <div class="form-row">
+          <input type="date" id="edit-task-${shortId}-due" value="${task.due||''}">
+          <input type="text" id="edit-task-${shortId}-campaign" value="${esc(task.campaign||'')}" placeholder="campaign">
+          <input type="text" id="edit-task-${shortId}-stake" value="${esc(task.stake||'')}" placeholder="what's at risk?">
+          <input type="text" id="edit-task-${shortId}-tags" value="${(task.tags||[]).join(', ')}" placeholder="tags">
+        </div>
+        <div class="form-actions">
+          <button class="submit-btn" onclick="event.stopPropagation();saveTask('${id}')">Save</button>
+          <button class="cancel-btn" onclick="event.stopPropagation();cancelEdit()">Cancel</button>
+        </div>
+      </div>
+    `;
+  });
+}
+
+async function saveTask(id) {
+  const shortId = id.slice(0, 8);
+  const body = {
+    content: document.getElementById(`edit-task-${shortId}-content`)?.value?.trim(),
+    energy: editEnergy,
+    estimate: parseInt(document.getElementById(`edit-task-${shortId}-estimate`)?.value) || null,
+    due: document.getElementById(`edit-task-${shortId}-due`)?.value || null,
+    campaign: document.getElementById(`edit-task-${shortId}-campaign`)?.value?.trim() || null,
+    stake: document.getElementById(`edit-task-${shortId}-stake`)?.value?.trim() || null,
+    tags: (document.getElementById(`edit-task-${shortId}-tags`)?.value || '').split(',').map(s => s.trim()).filter(Boolean),
+  };
+  const res = await fetch(`/api/tasks/${encodeURIComponent(shortId)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  });
+  if (res.ok) {
+    showToast(`✅ Updated: ${body.content}`);
+    await fetchAll();
+  } else { showToast('❌ Failed to update task'); }
+}
+
+function editLead(id, evt) {
+  if (evt) evt.stopPropagation();
+  const lead = state.leads.find(l => l.id === id);
+  if (!lead) return;
+  const shortId = id.slice(0, 8);
+  const card = document.querySelector(`[data-lead-id="${id}"]`);
+  if (!card) return;
+  card.onclick = null;
+  card.draggable = false;
+  card.innerHTML = `
+    <div class="edit-form" style="border:none;padding:0;background:none">
+      <div class="form-row">
+        <input type="text" id="edit-lead-${shortId}-name" value="${esc(lead.name)}" placeholder="Name">
+        <input type="email" id="edit-lead-${shortId}-email" value="${esc(lead.email||'')}" placeholder="Email">
+        <input type="text" id="edit-lead-${shortId}-company" value="${esc(lead.company||'')}" placeholder="Company">
+      </div>
+      <div class="form-row">
+        <select id="edit-lead-${shortId}-source">
+          ${['linkedin','referral','website','cold','other'].map(s => `<option value="${s}" ${lead.source===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+        <input type="number" id="edit-lead-${shortId}-value" value="${lead.value||0}" placeholder="€">
+        <input type="text" id="edit-lead-${shortId}-tags" value="${(lead.tags||[]).join(', ')}" placeholder="tags">
+      </div>
+      <div class="form-actions">
+        <button class="submit-btn" onclick="event.stopPropagation();saveLead('${id}')">Save</button>
+        <button class="cancel-btn" onclick="event.stopPropagation();cancelEdit()">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+async function saveLead(id) {
+  const shortId = id.slice(0, 8);
+  const body = {
+    name: document.getElementById(`edit-lead-${shortId}-name`)?.value?.trim(),
+    email: document.getElementById(`edit-lead-${shortId}-email`)?.value?.trim() || null,
+    company: document.getElementById(`edit-lead-${shortId}-company`)?.value?.trim() || null,
+    source: document.getElementById(`edit-lead-${shortId}-source`)?.value || 'other',
+    value: parseInt(document.getElementById(`edit-lead-${shortId}-value`)?.value) || 0,
+    tags: (document.getElementById(`edit-lead-${shortId}-tags`)?.value || '').split(',').map(s => s.trim()).filter(Boolean),
+  };
+  const res = await fetch(`/api/leads/${encodeURIComponent(shortId)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  });
+  if (res.ok) {
+    showToast(`✅ Updated: ${body.name}`);
+    await fetchAll();
+  } else { showToast('❌ Failed to update lead'); }
+}
+
+function editContent(id, evt) {
+  if (evt) evt.stopPropagation();
+  const item = state.content.find(c => c.id === id);
+  if (!item) return;
+  const shortId = id.slice(0, 8);
+  const rows = document.querySelectorAll('.content-row');
+  // Find the row by matching content - use data attribute approach
+  const row = document.querySelector(`[data-content-id="${id}"]`);
+  if (!row) return;
+  row.onclick = null;
+  row.style.display = 'block';
+  row.innerHTML = `
+    <div class="edit-form" style="border:none;padding:0;background:none">
+      <div class="form-row">
+        <textarea id="edit-content-${shortId}-text" rows="3" placeholder="Content text…">${esc(item.text)}</textarea>
+      </div>
+      <div class="form-row">
+        <select id="edit-content-${shortId}-platform">
+          ${['linkedin','twitter','email'].map(p => `<option value="${p}" ${item.platform===p?'selected':''}>${p}</option>`).join('')}
+        </select>
+        <input type="text" id="edit-content-${shortId}-tags" value="${(item.tags||[]).join(', ')}" placeholder="tags">
+      </div>
+      <div class="form-actions">
+        <button class="submit-btn" onclick="event.stopPropagation();saveContent('${id}')">Save</button>
+        <button class="cancel-btn" onclick="event.stopPropagation();cancelEdit()">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+async function saveContent(id) {
+  const shortId = id.slice(0, 8);
+  const body = {
+    text: document.getElementById(`edit-content-${shortId}-text`)?.value?.trim(),
+    platform: document.getElementById(`edit-content-${shortId}-platform`)?.value || 'linkedin',
+    tags: (document.getElementById(`edit-content-${shortId}-tags`)?.value || '').split(',').map(s => s.trim()).filter(Boolean),
+  };
+  const res = await fetch(`/api/content/${encodeURIComponent(shortId)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  });
+  if (res.ok) {
+    showToast(`✅ Updated: ${body.text.slice(0, 40)}${body.text.length > 40 ? '…' : ''}`);
+    await fetchAll();
+  } else { showToast('❌ Failed to update content'); }
+}
+
+function cancelEdit() { render(); }
 
 // Init
 fetchAll();
