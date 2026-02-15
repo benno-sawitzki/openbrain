@@ -8,6 +8,9 @@ import { exec } from 'child_process';
 import { createClient } from '@supabase/supabase-js';
 import { initLocalGateway, getLocalGateway, gatewayPool, GatewayClient } from './gateway';
 import type { GatewayConfig } from './gateway';
+import { LocalWorkflowStorage, CloudWorkflowStorage } from './workflows/storage';
+import { WorkflowEngine } from './workflows/engine';
+import { createWorkflowRouter } from './workflows/routes';
 
 // Load .env file if present (no dependency needed)
 const envPath = path.join(__dirname, '..', '.env');
@@ -81,6 +84,39 @@ async function readSyncedData(req: express.Request, dataType: string): Promise<a
     .eq('data_type', dataType)
     .single();
   return data?.data ?? null;
+}
+
+async function writeSyncedData(req: express.Request, dataType: string, payload: any): Promise<boolean> {
+  if (!IS_CLOUD || !supabase) return false;
+  const user = await resolveUser(req);
+  if (!user) return false;
+  await supabase.from('workspace_data').upsert({
+    workspace_id: user.workspaceId,
+    data_type: dataType,
+    data: payload,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'workspace_id,data_type' });
+  return true;
+}
+
+// --- Workflows ---
+const wfStorage = IS_CLOUD
+  ? null // Cloud storage created per-request in router
+  : new LocalWorkflowStorage();
+
+function getWorkflowStorage(req: express.Request): LocalWorkflowStorage {
+  // For now, local storage only. Cloud mode will be added later.
+  return wfStorage as LocalWorkflowStorage;
+}
+
+const wfEngine = wfStorage ? new WorkflowEngine(wfStorage) : null;
+
+function authenticateRunToken(req: any): string | null {
+  const header = req.headers['x-run-token'] as string;
+  if (header) return header;
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer rt_')) return auth.slice(7);
+  return null;
 }
 
 // Resolve data directory
@@ -246,153 +282,211 @@ function parseWorkflows(output: string): any[] {
 // Create task
 app.use(express.json());
 
-app.post('/api/tasks', (req, res) => {
+// Mount workflow router (needs JSON parsing from above)
+if (wfEngine && wfStorage) {
+  app.use('/api/wf', createWorkflowRouter(wfEngine, wfStorage, authenticateRunToken));
+}
+
+app.post('/api/tasks', async (req, res) => {
   const { content, energy, estimate, due, campaign, stake, tags } = req.body;
   if (!content) return res.status(400).json({ error: 'content required' });
-  const tasksPath = p('.taskpipe', 'tasks.json');
-  const tasks = readJSON(tasksPath) || [];
-  const now = new Date().toISOString();
-  const task = {
-    id: crypto.randomUUID(),
-    content,
-    status: 'todo',
-    energy: energy || 'medium',
-    estimate: estimate || null,
-    due: due || null,
-    campaign: campaign || null,
-    stake: stake || null,
-    tags: tags || [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  tasks.push(task);
-  fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
-  res.json(task);
+  try {
+    const tasks = IS_CLOUD
+      ? ((await readSyncedData(req, 'tasks')) || [])
+      : (readJSON(p('.taskpipe', 'tasks.json')) || []);
+    const now = new Date().toISOString();
+    const task = {
+      id: crypto.randomUUID(),
+      content,
+      status: 'todo',
+      energy: energy || 'medium',
+      estimate: estimate || null,
+      due: due || null,
+      campaign: campaign || null,
+      stake: stake || null,
+      tags: tags || [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    tasks.push(task);
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'tasks', tasks);
+    } else {
+      fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(tasks, null, 2));
+    }
+    res.json(task);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Create lead
-app.post('/api/leads', (req, res) => {
+app.post('/api/leads', async (req, res) => {
   const { name, email, company, source, value, stage, tags } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
-  const leadsPath = p('.leadpipe', 'leads.json');
-  const leads = readJSON(leadsPath) || [];
-  const now = new Date().toISOString();
-  const lead = {
-    id: crypto.randomUUID(),
-    name,
-    email: email || null,
-    company: company || null,
-    source: source || 'other',
-    value: value || 0,
-    stage: stage || 'cold',
-    score: 0,
-    tags: tags || [],
-    touches: [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  leads.push(lead);
-  fs.writeFileSync(leadsPath, JSON.stringify(leads, null, 2));
-  res.json(lead);
+  try {
+    const leads = IS_CLOUD
+      ? ((await readSyncedData(req, 'leads')) || [])
+      : (readJSON(p('.leadpipe', 'leads.json')) || []);
+    const now = new Date().toISOString();
+    const lead = {
+      id: crypto.randomUUID(),
+      name,
+      email: email || null,
+      company: company || null,
+      source: source || 'other',
+      value: value || 0,
+      stage: stage || 'cold',
+      score: 0,
+      tags: tags || [],
+      touches: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    leads.push(lead);
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'leads', leads);
+    } else {
+      fs.writeFileSync(p('.leadpipe', 'leads.json'), JSON.stringify(leads, null, 2));
+    }
+    res.json(lead);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Create content
-app.post('/api/content', (req, res) => {
+app.post('/api/content', async (req, res) => {
   const { text, platform, tags } = req.body;
   if (!text) return res.status(400).json({ error: 'text required' });
-  const queuePath = p('.contentq', 'queue.json');
-  const queue = readJSON(queuePath) || [];
-  const now = new Date().toISOString();
-  const item = {
-    id: crypto.randomUUID(),
-    text,
-    platform: platform || 'linkedin',
-    status: 'draft',
-    tags: tags || [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  queue.push(item);
-  fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
-  res.json(item);
+  try {
+    const queue = IS_CLOUD
+      ? ((await readSyncedData(req, 'content')) || [])
+      : (readJSON(p('.contentq', 'queue.json')) || []);
+    const now = new Date().toISOString();
+    const item = {
+      id: crypto.randomUUID(),
+      text,
+      platform: platform || 'linkedin',
+      status: 'draft',
+      tags: tags || [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    queue.push(item);
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'content', queue);
+    } else {
+      fs.writeFileSync(p('.contentq', 'queue.json'), JSON.stringify(queue, null, 2));
+    }
+    res.json(item);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Update task
-app.put('/api/tasks/:id', (req, res) => {
+app.put('/api/tasks/:id', async (req, res) => {
   const { id } = req.params;
-  const tasksPath = p('.taskpipe', 'tasks.json');
-  const tasks = readJSON(tasksPath);
-  if (!tasks) return res.status(500).json({ error: 'could not read tasks' });
-  const task = tasks.find((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
-  if (!task) return res.status(404).json({ error: 'task not found' });
-  const updates = req.body;
-  Object.assign(task, updates, { updatedAt: new Date().toISOString() });
-  fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
-  res.json(task);
+  try {
+    const tasks = IS_CLOUD
+      ? ((await readSyncedData(req, 'tasks')) || [])
+      : (readJSON(p('.taskpipe', 'tasks.json')) || []);
+    const task = tasks.find((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
+    if (!task) return res.status(404).json({ error: 'task not found' });
+    Object.assign(task, req.body, { updatedAt: new Date().toISOString() });
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'tasks', tasks);
+    } else {
+      fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(tasks, null, 2));
+    }
+    res.json(task);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Update lead
-app.put('/api/leads/:id', (req, res) => {
+app.put('/api/leads/:id', async (req, res) => {
   const { id } = req.params;
-  const leadsPath = p('.leadpipe', 'leads.json');
-  const leads = readJSON(leadsPath);
-  if (!leads) return res.status(500).json({ error: 'could not read leads' });
-  const lead = leads.find((l: any) => id.length < 36 ? l.id.startsWith(id) : l.id === id);
-  if (!lead) return res.status(404).json({ error: 'lead not found' });
-  const updates = req.body;
-  Object.assign(lead, updates, { updatedAt: new Date().toISOString() });
-  fs.writeFileSync(leadsPath, JSON.stringify(leads, null, 2));
-  res.json(lead);
+  try {
+    const leads = IS_CLOUD
+      ? ((await readSyncedData(req, 'leads')) || [])
+      : (readJSON(p('.leadpipe', 'leads.json')) || []);
+    const lead = leads.find((l: any) => id.length < 36 ? l.id.startsWith(id) : l.id === id);
+    if (!lead) return res.status(404).json({ error: 'lead not found' });
+    Object.assign(lead, req.body, { updatedAt: new Date().toISOString() });
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'leads', leads);
+    } else {
+      fs.writeFileSync(p('.leadpipe', 'leads.json'), JSON.stringify(leads, null, 2));
+    }
+    res.json(lead);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Update content
-app.put('/api/content/:id', (req, res) => {
+app.put('/api/content/:id', async (req, res) => {
   const { id } = req.params;
-  const queuePath = p('.contentq', 'queue.json');
-  const queue = readJSON(queuePath);
-  if (!queue) return res.status(500).json({ error: 'could not read content' });
-  const item = queue.find((c: any) => id.length < 36 ? c.id.startsWith(id) : c.id === id);
-  if (!item) return res.status(404).json({ error: 'content not found' });
-  const updates = req.body;
-  Object.assign(item, updates, { updatedAt: new Date().toISOString() });
-  fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
-  res.json(item);
+  try {
+    const queue = IS_CLOUD
+      ? ((await readSyncedData(req, 'content')) || [])
+      : (readJSON(p('.contentq', 'queue.json')) || []);
+    const item = queue.find((c: any) => id.length < 36 ? c.id.startsWith(id) : c.id === id);
+    if (!item) return res.status(404).json({ error: 'content not found' });
+    Object.assign(item, req.body, { updatedAt: new Date().toISOString() });
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'content', queue);
+    } else {
+      fs.writeFileSync(p('.contentq', 'queue.json'), JSON.stringify(queue, null, 2));
+    }
+    res.json(item);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Move task to new status
 
-app.post('/api/tasks/:id/move', (req, res) => {
+app.post('/api/tasks/:id/move', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   if (!status) return res.status(400).json({ error: 'status required' });
 
-  const tasksPath = p('.taskpipe', 'tasks.json');
-  const tasks = readJSON(tasksPath);
-  if (!tasks) return res.status(500).json({ error: 'could not read tasks' });
+  try {
+    let tasks: any[];
+    if (IS_CLOUD) {
+      tasks = (await readSyncedData(req, 'tasks')) || [];
+    } else {
+      tasks = readJSON(p('.taskpipe', 'tasks.json')) || [];
+    }
 
-  const task = tasks.find((t: any) =>
-    id.length < 36 ? t.id.startsWith(id) : t.id === id
-  );
-  if (!task) return res.status(404).json({ error: 'task not found' });
+    const task = tasks.find((t: any) =>
+      id.length < 36 ? t.id.startsWith(id) : t.id === id
+    );
+    if (!task) return res.status(404).json({ error: 'task not found' });
 
-  task.status = status;
-  task.updatedAt = new Date().toISOString();
-  if (status === 'done') task.completedAt = new Date().toISOString();
-  fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
-  res.json(task);
+    task.status = status;
+    task.updatedAt = new Date().toISOString();
+    if (status === 'done') task.completedAt = new Date().toISOString();
+
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'tasks', tasks);
+    } else {
+      const tasksPath = p('.taskpipe', 'tasks.json');
+      fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
+    }
+    res.json(task);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Delete task
-app.delete('/api/tasks/:id', (req, res) => {
+app.delete('/api/tasks/:id', async (req, res) => {
   const { id } = req.params;
-  const tasksPath = p('.taskpipe', 'tasks.json');
-  const tasks = readJSON(tasksPath);
-  if (!tasks) return res.status(500).json({ error: 'could not read tasks' });
-  const idx = tasks.findIndex((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'task not found' });
-  const removed = tasks.splice(idx, 1)[0];
-  fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
-  res.json(removed);
+  try {
+    const tasks = IS_CLOUD
+      ? ((await readSyncedData(req, 'tasks')) || [])
+      : (readJSON(p('.taskpipe', 'tasks.json')) || []);
+    const idx = tasks.findIndex((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'task not found' });
+    const removed = tasks.splice(idx, 1)[0];
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'tasks', tasks);
+    } else {
+      fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(tasks, null, 2));
+    }
+    res.json(removed);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Read spec/attachment file for a task
