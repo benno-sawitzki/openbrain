@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO=/opt/openbrain-repo
-APP=/opt/open-brain
+APP=/opt/openbrain
 
 cd "$REPO"
 git pull origin main
@@ -33,6 +33,6 @@ cd "$APP"
 npm ci --omit=dev
 
 # Restart
-pm2 restart open-brain || pm2 start ecosystem.config.cjs
+pm2 restart openbrain || pm2 start ecosystem.config.cjs
 
 echo "Deploy complete: $(date -u +%Y-%m-%dT%H:%M:%SZ)"

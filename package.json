@@ -1,9 +1,9 @@
 {
-  "name": "open-brain",
+  "name": "openbrain",
   "version": "0.2.0",
   "description": "Open Brain — See what your Open Claw is doing",
   "bin": {
-    "open-brain": "dist/server.js"
+    "openbrain": "dist/server.js"
   },
   "scripts": {
     "build": "tsc",

@@ -1,6 +1,6 @@
 module.exports = {
   apps: [{
-    name: 'open-brain',
+    name: 'openbrain',
     script: 'dist/server.js',
     env: {
       NODE_ENV: 'production',

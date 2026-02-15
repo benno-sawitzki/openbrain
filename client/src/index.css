@@ -385,3 +385,224 @@ body::after {
   background: rgba(220, 38, 38, 0.25);
   color: #fff;
 }
+
+/* ═══════════════════════════════════════════
+   Landing page
+   ═══════════════════════════════════════════ */
+
+/* Slow horizontal scanline */
+@keyframes landing-scan {
+  0%   { transform: translateY(-100vh); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+.landing-scanline {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+  overflow: hidden;
+}
+
+.landing-scanline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 10%, rgba(220, 38, 38, 0.12) 40%, rgba(220, 38, 38, 0.12) 60%, transparent 90%);
+  box-shadow: 0 0 20px 2px rgba(220, 38, 38, 0.06);
+  animation: landing-scan 8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-scanline::after { animation: none; display: none; }
+}
+
+/* Blinking cursor */
+@keyframes cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.landing-cursor {
+  font-family: 'Geist Mono', monospace;
+  color: #DC2626;
+  animation: cursor-blink 1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-cursor { animation: none; opacity: 1; }
+}
+
+/* Hero text backdrop for readability */
+.landing-hero-backdrop {
+  background: radial-gradient(ellipse at center, rgba(9, 9, 11, 0.75) 0%, rgba(9, 9, 11, 0.4) 60%, transparent 100%);
+}
+
+/* Hero accent text */
+.landing-hero-accent {
+  color: #DC2626;
+  text-shadow: 0 0 40px rgba(220, 38, 38, 0.25);
+}
+
+/* Step number */
+.landing-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.08);
+  color: rgba(220, 38, 38, 0.8);
+  border: 1px solid rgba(220, 38, 38, 0.12);
+  font-weight: 600;
+}
+
+/* CTA button */
+.landing-cta-btn {
+  background: #DC2626 !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: 0 0 20px rgba(220, 38, 38, 0.2), 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+.landing-cta-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 30px rgba(220, 38, 38, 0.3), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Status pill in nav */
+.landing-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(220, 38, 38, 0.15);
+  background: rgba(220, 38, 38, 0.06);
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  color: rgba(220, 38, 38, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.landing-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #DC2626;
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-status-dot { animation: none; opacity: 0.8; }
+}
+
+/* Feature card — top shimmer on hover */
+.landing-feature-card {
+  position: relative;
+  transition: transform 0.2s ease-out, border-color 0.2s ease;
+}
+
+.landing-feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(220, 38, 38, 0.3), transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.landing-feature-card:hover {
+  transform: translateY(-2px);
+}
+
+.landing-feature-card:hover::before {
+  opacity: 1;
+}
+
+/* Tag badge */
+.landing-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(220, 38, 38, 0.08);
+  color: rgba(220, 38, 38, 0.8);
+  letter-spacing: 0.08em;
+}
+
+/* Terminal block inside feature cards */
+.landing-terminal {
+  background: rgba(9, 9, 11, 0.6);
+  border: 1px solid rgba(63, 63, 70, 0.15);
+}
+
+/* Module pills */
+.landing-module-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(63, 63, 70, 0.2);
+  background: rgba(255, 255, 255, 0.02);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  color: rgba(161, 161, 170, 0.7);
+  animation: fade-up 0.4s ease-out both;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.landing-module-pill:hover {
+  border-color: rgba(220, 38, 38, 0.2);
+  background: rgba(220, 38, 38, 0.04);
+  color: rgba(220, 38, 38, 0.8);
+}
+
+/* Orbiting dots around CTA brain */
+@keyframes orbit-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.landing-orbit-container {
+  position: relative;
+}
+
+.landing-orbit {
+  position: absolute;
+  inset: -8px;
+  animation: orbit-spin 12s linear infinite;
+}
+
+.landing-orbit-dot {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #DC2626;
+  opacity: 0.5;
+  /* Distribute dots evenly around the circle */
+  top: 50%;
+  left: 50%;
+  transform:
+    rotate(calc(var(--i) * 120deg))
+    translateY(calc(-50% - 40px))
+    translateX(-50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-orbit { animation: none; }
+  .landing-cta-btn:hover { transform: none; }
+  .landing-feature-card:hover { transform: none; }
+}

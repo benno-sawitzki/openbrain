@@ -42,7 +42,7 @@ export class GatewayClient {
 
     // Derive a stable Ed25519 keypair from the token so the device ID
     // stays the same across restarts — once paired, it stays paired.
-    const seed = crypto.createHash('sha256').update(`open-brain:${config.token}`).digest().subarray(0, 32);
+    const seed = crypto.createHash('sha256').update(`openbrain:${config.token}`).digest().subarray(0, 32);
     // Ed25519 private key = OID prefix + 32-byte seed
     const ed25519OidPrefix = Buffer.from('302e020100300506032b657004220420', 'hex');
     const seedPrivDer = Buffer.concat([ed25519OidPrefix, seed]);
@@ -226,7 +226,7 @@ export class GatewayClient {
       params: {
         minProtocol: 3,
         maxProtocol: 3,
-        client: { id: 'gateway-client', version: '0.1', platform: process.platform, mode: 'backend', instanceId: 'open-brain' },
+        client: { id: 'gateway-client', version: '0.1', platform: process.platform, mode: 'backend', instanceId: 'openbrain' },
         role,
         scopes,
         device: { id: this.deviceId, publicKey: this.pubKeyB64url, signature: sig, signedAt: now, nonce: nonce || undefined },

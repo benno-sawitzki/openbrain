@@ -12,6 +12,7 @@ import { CalendarTab } from './tabs/Calendar';
 import { SystemTab } from './tabs/System';
 import { HelpDrawer } from './components/HelpDrawer';
 import { LoginPage } from './pages/Login';
+import { LandingPage } from './pages/Landing';
 import { ConnectPage } from './pages/Connect';
 import { useAuth } from './hooks/useAuth';
 import { palette, colors, accentAlpha } from './theme';
@@ -73,13 +74,23 @@ export default function App() {
 
   const notify = (msg: string) => toast(msg);
 
+  const [showLogin, setShowLogin] = useState(false);
+
+  // Local mode: allow #landing to preview the landing page
+  if (!auth.isCloudMode && window.location.hash === '#landing') {
+    return <LandingPage onLogin={() => { window.location.hash = 'dashboard'; }} />;
+  }
+
   // Cloud mode: auth flow
   if (auth.isCloudMode) {
     if (auth.loading) {
       return <div className="min-h-dvh bg-background flex items-center justify-center text-muted-foreground">Loading...</div>;
     }
     if (!auth.user) {
-      return <LoginPage onSignIn={auth.signIn} onSignUp={auth.signUp} />;
+      if (showLogin) {
+        return <LoginPage onSignIn={auth.signIn} onSignUp={auth.signUp} />;
+      }
+      return <LandingPage onLogin={() => setShowLogin(true)} />;
     }
     if (!auth.workspace?.gateway_url) {
       return (

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 HOST="${1:?Usage: ./deploy.sh user@host}"
-APP_DIR="/opt/open-brain"
+APP_DIR="/opt/openbrain"
 
 echo "=== Deploying Open Brain to $HOST ==="
 
@@ -41,7 +41,7 @@ ssh "$HOST" "cd $APP_DIR && npm ci --omit=dev && cp -n .env.production .env 2>/d
 
 # 5. Start/restart with pm2
 echo "[5/5] Starting app..."
-ssh "$HOST" "cd $APP_DIR && npx pm2 delete open-brain 2>/dev/null || true && npx pm2 start ecosystem.config.cjs --env production && npx pm2 save"
+ssh "$HOST" "cd $APP_DIR && npx pm2 delete openbrain 2>/dev/null || true && npx pm2 start ecosystem.config.cjs --env production && npx pm2 save"
 
 echo ""
 echo "=== Deployed! ==="
