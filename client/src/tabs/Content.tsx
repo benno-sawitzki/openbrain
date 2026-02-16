@@ -9,7 +9,7 @@ import * as api from '../api';
 import { palette, colors, accentAlpha } from '../theme';
 
 const statusStyle = (s: string) => ({
-  draft: 'bg-yellow-500/15 text-yellow-400',
+  draft: 'bg-zinc-500/10 text-zinc-500',
   scheduled: 'bg-zinc-500/15 text-zinc-400',
   published: 'bg-emerald-500/15 text-emerald-400',
   failed: 'bg-red-500/15 text-red-400',

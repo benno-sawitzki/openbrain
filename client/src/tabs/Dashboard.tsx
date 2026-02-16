@@ -406,7 +406,7 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
                   <div key={c.id} className="rounded-lg border border-border/50 p-2.5 hover:bg-white/[0.02] transition-colors">
                     <div className="flex items-center gap-2 text-sm">
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-medium ${
-                        c.status === 'draft' ? 'bg-yellow-500/15 text-yellow-400' :
+                        c.status === 'draft' ? 'bg-zinc-500/10 text-zinc-500' :
                         c.status === 'scheduled' ? 'bg-zinc-500/15 text-zinc-400' :
                         c.status === 'published' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'
                       }`}>{c.status}</span>
