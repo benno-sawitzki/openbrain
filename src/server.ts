@@ -1414,17 +1414,15 @@ if (IS_CLOUD && SYNC_SECRET) {
     }
 
     try {
-      // Array types need merge (cloud edits + local additions coexist)
-      const arrayTypes = ['tasks', 'leads', 'content'] as const;
-      // Non-array types are safe to overwrite (read-only in cloud UI)
+      // Editable types: only ADD new items from local (never overwrite existing cloud items)
+      const editableTypes = ['tasks', 'leads', 'content'] as const;
+      // Read-only types: safe to overwrite (these are display-only in cloud UI)
       const replaceTypes = ['activity', 'stats', 'config', 'inbox'] as const;
       let synced = 0;
 
-      // Use write lock to prevent races with cloud UI endpoints
       await withWriteLock(`sync:${workspaceId}`, async () => {
-        for (const dt of arrayTypes) {
+        for (const dt of editableTypes) {
           if (req.body[dt] !== undefined && Array.isArray(req.body[dt])) {
-            // Read current cloud data — if read fails, SKIP (don't treat cloud as empty)
             const { data: row, error: readErr } = await supabase
               .from('workspace_data')
               .select('data')
@@ -1433,46 +1431,38 @@ if (IS_CLOUD && SYNC_SECRET) {
               .single();
 
             if (readErr && readErr.code !== 'PGRST116') {
-              // PGRST116 = "no rows" (expected for first sync); anything else = real error
               console.error(`[sync] SKIPPING ${dt} — cloud read failed:`, readErr.message);
-              continue; // Don't merge with empty cloud data — that would overwrite cloud edits!
+              continue;
             }
 
             const cloudItems: any[] = row?.data || [];
+            const cloudIds = new Set(cloudItems.map((item: any) => item.id).filter(Boolean));
             const deletedIds = cloudDeletedIds.get(`${workspaceId}:${dt}`);
 
-            // Diagnostic: log merge inputs for leads
-            if (dt === 'leads') {
-              console.log(`[sync] leads merge: ${cloudItems.length} cloud items, ${req.body[dt].length} local items, readErr=${readErr?.code || 'none'}`);
-              for (const ci of cloudItems) {
-                console.log(`[sync]   cloud: ${ci.name} stage=${ci.stage} updated=${ci.updatedAt}`);
-              }
-              for (const li of req.body[dt]) {
-                console.log(`[sync]   local: ${li.name} stage=${li.stage} updated=${li.updatedAt}`);
-              }
+            // Only add items from local that DON'T exist in cloud yet
+            let added = 0;
+            const result = [...cloudItems];
+            for (const item of req.body[dt]) {
+              if (!item.id) continue;
+              if (cloudIds.has(item.id)) continue; // Already in cloud — don't touch
+              if (deletedIds?.has(item.id)) continue; // Was deleted in cloud — don't re-add
+              result.push(item);
+              added++;
             }
 
-            const merged = mergeArrayData(req.body[dt], cloudItems, deletedIds);
-
-            // Diagnostic: log merge output for leads
-            if (dt === 'leads') {
-              for (const mi of merged) {
-                const ci = cloudItems.find((c: any) => c.id === mi.id);
-                if (ci && ci.stage !== mi.stage) {
-                  console.log(`[sync]   CHANGED: ${mi.name} cloud=${ci.stage} → merged=${mi.stage}`);
-                }
-              }
+            if (added > 0) {
+              console.log(`[sync] ${dt}: added ${added} new items from local`);
             }
 
             const { error: writeErr } = await supabase.from('workspace_data').upsert({
               workspace_id: workspaceId,
               data_type: dt,
-              data: merged,
+              data: result,
               synced_at: new Date().toISOString(),
             }, { onConflict: 'workspace_id,data_type' });
 
             if (writeErr) {
-              console.error(`[sync] FAILED to write merged ${dt}:`, writeErr.message);
+              console.error(`[sync] FAILED to write ${dt}:`, writeErr.message);
             } else {
               synced++;
             }
@@ -1496,9 +1486,9 @@ if (IS_CLOUD && SYNC_SECRET) {
         }
       });
 
-      // Return merged array data so local can write it back (two-way sync)
+      // Return cloud data so local can write it back (two-way sync)
       const mergedBack: Record<string, any> = {};
-      for (const dt of arrayTypes) {
+      for (const dt of editableTypes) {
         if (req.body[dt] !== undefined) {
           const { data: row } = await supabase
             .from('workspace_data')
