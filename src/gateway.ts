@@ -288,7 +288,7 @@ class GatewayPool {
     this.clients.set(workspaceId, client);
 
     // Wait for connection
-    const ok = await client.waitForConnection(6000);
+    const ok = await client.waitForConnection(10000);
     if (!ok) {
       client.disconnect();
       this.clients.delete(workspaceId);

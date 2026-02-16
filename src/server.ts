@@ -121,7 +121,8 @@ async function getGatewayForRequest(req: express.Request): Promise<GatewayClient
   if (!user?.gatewayConfig) return null;
   try {
     return await gatewayPool.getOrConnect(user.workspaceId, user.gatewayConfig);
-  } catch {
+  } catch (e: any) {
+    console.error('[gateway] Pool connect failed:', e.message);
     return null;
   }
 }
@@ -737,6 +738,9 @@ app.get('/api/cron/jobs', async (_req, res) => {
     if (gw?.isConnected()) {
       const data = await gw.cronList();
       res.json(data);
+    } else if (IS_CLOUD) {
+      // Cloud mode: gateway is the only source for cron jobs
+      res.json({ jobs: [], _reason: 'gateway_not_connected' });
     } else {
       const data = await readCronJobs();
       res.json(data);
@@ -1340,10 +1344,19 @@ app.get('/api/gateway/skills', async (_req, res) => {
 
 // Gateway connection info for the client
 app.get('/api/gateway/info', async (_req, res) => {
+  let reason: string | undefined;
+  if (IS_CLOUD) {
+    const user = await resolveUser(_req);
+    if (!user) reason = 'no_auth';
+    else if (!user.gatewayConfig) reason = 'no_gateway_config';
+  } else if (!getLocalGateway()) {
+    reason = 'no_gateway_token_env';
+  }
   const gw = await getGatewayForRequest(_req);
   res.json({
     enabled: !!gw,
     connected: gw?.isConnected() || false,
+    ...(reason ? { reason } : {}),
   });
 });
 
