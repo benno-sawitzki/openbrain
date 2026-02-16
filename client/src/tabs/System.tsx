@@ -110,18 +110,16 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
-    try {
-      const [cronRes, gwInfo, gwHealth, gwSessions] = await Promise.all([
-        api.fetchCronJobs(),
-        api.fetchGatewayInfo(),
-        api.fetchGatewayHealth(),
-        api.fetchGatewaySessions(),
-      ]);
-      setJobs(cronRes?.jobs || (Array.isArray(cronRes) ? cronRes : []));
-      setGatewayInfo(gwInfo);
-      setGatewayHealth(gwHealth);
-      setSessions(gwSessions?.sessions || []);
-    } catch (e) { console.error(e); }
+    const [cronRes, gwInfo, gwHealth, gwSessions] = await Promise.allSettled([
+      api.fetchCronJobs(),
+      api.fetchGatewayInfo(),
+      api.fetchGatewayHealth(),
+      api.fetchGatewaySessions(),
+    ]);
+    if (cronRes.status === 'fulfilled') setJobs(cronRes.value?.jobs || (Array.isArray(cronRes.value) ? cronRes.value : []));
+    if (gwInfo.status === 'fulfilled') setGatewayInfo(gwInfo.value);
+    if (gwHealth.status === 'fulfilled') setGatewayHealth(gwHealth.value);
+    if (gwSessions.status === 'fulfilled') setSessions(gwSessions.value?.sessions || []);
   };
 
   useEffect(() => {
