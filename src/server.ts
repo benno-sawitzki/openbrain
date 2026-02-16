@@ -161,9 +161,9 @@ async function cloudReadModifyWrite(
   dataType: string,
   modify: (items: any[]) => any[] | null, // return null to abort
 ): Promise<{ items: any[] | null; error?: string }> {
-  if (!IS_CLOUD || !supabase) return { items: null };
+  if (!IS_CLOUD || !supabase) { console.log(`[cloudRMW] skip — not cloud`); return { items: null }; }
   const user = await resolveUser(req);
-  if (!user) return { items: null, error: 'unauthorized' };
+  if (!user) { console.log(`[cloudRMW] ${dataType} — auth failed (no user from token)`); return { items: null, error: 'unauthorized' }; }
 
   return withWriteLock(`sync:${user.workspaceId}`, async () => {
     const { data } = await supabase
@@ -660,20 +660,22 @@ app.post('/api/leads/:id/move', async (req, res) => {
   const { id } = req.params;
   const { stage } = req.body;
   if (!stage) return res.status(400).json({ error: 'stage required' });
+  console.log(`[move-lead] id=${id} → stage=${stage}`);
 
   try {
     if (IS_CLOUD) {
       let movedLead: any = null;
       const { error } = await cloudReadModifyWrite(req, 'leads', (leads) => {
         const lead = leads.find((l: any) => id.length < 36 ? l.id.startsWith(id) : l.id === id);
-        if (!lead) return null;
+        if (!lead) { console.log(`[move-lead] lead not found in ${leads.length} leads`); return null; }
         lead.stage = stage;
         lead.updatedAt = new Date().toISOString();
         movedLead = lead;
         return leads;
       });
-      if (error === 'not found') return res.status(404).json({ error: 'lead not found' });
-      if (error) return res.status(500).json({ error });
+      if (error === 'not found') { console.log(`[move-lead] ERROR: not found`); return res.status(404).json({ error: 'lead not found' }); }
+      if (error) { console.log(`[move-lead] ERROR: ${error}`); return res.status(500).json({ error }); }
+      console.log(`[move-lead] SUCCESS: ${movedLead?.name} → ${movedLead?.stage}`);
       res.json(movedLead);
     } else {
       const leads = readJSON(p('.leadpipe', 'leads.json')) || [];
