@@ -159,6 +159,12 @@ export const fetchBrain = (): Promise<any> =>
 export const fetchMemoryTimeline = (): Promise<any> =>
   apiFetch('/api/memory/timeline').then(json);
 
+export const fetchAgentsConfig = (): Promise<{ agents: any[]; defaults: any }> =>
+  apiFetch('/api/agents/config').then(json);
+
+export const fetchAgentFiles = (agentId: string): Promise<{ files: Record<string, string | null>; workspace: string; agentDir: string }> =>
+  apiFetch(`/api/agents/${encodeURIComponent(agentId)}/files`).then(json);
+
 export const testGateway = (body: any): Promise<Response> =>
   apiFetch('/api/gateway/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 

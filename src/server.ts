@@ -533,6 +533,52 @@ app.get('/api/agents', async (_req, res) => {
   });
 });
 
+// Agent config from openclaw.json — returns full agent list with defaults
+app.get('/api/agents/config', async (_req, res) => {
+  try {
+    const config = await readOpenclawConfig();
+    if (!config?.agents) return res.json({ agents: [], defaults: {} });
+    const defaults = config.agents.defaults || {};
+    // Strip sensitive fields from defaults
+    const safeDefaults = {
+      model: defaults.model,
+      heartbeat: defaults.heartbeat,
+      maxConcurrent: defaults.maxConcurrent,
+      contextPruning: defaults.contextPruning,
+      compaction: defaults.compaction,
+      typingMode: defaults.typingMode,
+    };
+    res.json({ agents: config.agents.list || [], defaults: safeDefaults });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Read an agent's workspace markdown files (SOUL.md, IDENTITY.md, etc.)
+app.get('/api/agents/:agentId/files', async (req, res) => {
+  try {
+    const agentId = req.params.agentId;
+    const config = await readOpenclawConfig();
+    const agent = (config?.agents?.list || []).find((a: any) => a.id === agentId);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    const workspace = agent.workspace;
+    if (!workspace) return res.json({ files: {} });
+    const mdFiles = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'AGENTS.md', 'HEARTBEAT.md'];
+    const files: Record<string, string | null> = {};
+    for (const name of mdFiles) {
+      try {
+        const content = await sshReadFile(`${workspace}/${name}`);
+        files[name] = content?.trim() || null;
+      } catch {
+        files[name] = null;
+      }
+    }
+    res.json({ files, workspace, agentDir: agent.agentDir });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 function parseWorkflows(output: string): any[] {
   if (!output.trim()) return [];
   const workflows: any[] = [];

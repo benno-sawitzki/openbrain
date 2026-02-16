@@ -158,28 +158,67 @@ const CRON_PRESETS = [
   { label: '1st of month at 10 AM', expr: '0 10 1 * *' },
 ];
 
+/* ── Agent Detail helpers ── */
+function describeTools(tools: any): string[] {
+  if (!tools) return [];
+  const lines: string[] = [];
+  if (tools.profile) lines.push(`Profile: ${tools.profile}`);
+  if (tools.alsoAllow?.length) lines.push(`Extra: ${tools.alsoAllow.join(', ')}`);
+  if (tools.deny?.length) lines.push(`Denied: ${tools.deny.join(', ')}`);
+  return lines;
+}
+
 /* ── Main Component ── */
 export function SystemTab({ agents, notify }: { agents: any; notify: (m: string) => void }) {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [gatewayInfo, setGatewayInfo] = useState<{ enabled: boolean; connected: boolean } | null>(null);
   const [gatewayHealth, setGatewayHealth] = useState<any>(null);
   const [sessions, setSessions] = useState<GatewaySession[]>([]);
+  const [agentConfigs, setAgentConfigs] = useState<any[]>([]);
+  const [agentDefaults, setAgentDefaults] = useState<any>({});
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [agentFiles, setAgentFiles] = useState<Record<string, any>>({});
+  const [agentFilesLoading, setAgentFilesLoading] = useState<string | null>(null);
+  const [agentTab, setAgentTab] = useState<'overview' | 'files' | 'json'>('overview');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [newJob, setNewJob] = useState({ name: '', cronExpr: '0 9 * * 1-5', tz: 'Europe/Berlin', message: '', sessionTarget: 'isolated' as const });
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
-    const [cronRes, gwInfo, gwHealth, gwSessions] = await Promise.allSettled([
+    const [cronRes, gwInfo, gwHealth, gwSessions, agentCfg] = await Promise.allSettled([
       api.fetchCronJobs(),
       api.fetchGatewayInfo(),
       api.fetchGatewayHealth(),
       api.fetchGatewaySessions(),
+      api.fetchAgentsConfig(),
     ]);
     if (cronRes.status === 'fulfilled') setJobs(cronRes.value?.jobs || (Array.isArray(cronRes.value) ? cronRes.value : []));
     if (gwInfo.status === 'fulfilled') setGatewayInfo(gwInfo.value);
     if (gwHealth.status === 'fulfilled') setGatewayHealth(gwHealth.value);
     if (gwSessions.status === 'fulfilled') setSessions(gwSessions.value?.sessions || []);
+    if (agentCfg.status === 'fulfilled') {
+      setAgentConfigs(agentCfg.value?.agents || []);
+      setAgentDefaults(agentCfg.value?.defaults || {});
+    }
+  };
+
+  const toggleAgent = async (id: string) => {
+    if (expandedAgent === id) {
+      setExpandedAgent(null);
+      return;
+    }
+    setExpandedAgent(id);
+    setAgentTab('overview');
+    // Fetch files if not already cached
+    if (!agentFiles[id]) {
+      setAgentFilesLoading(id);
+      try {
+        const data = await api.fetchAgentFiles(id);
+        setAgentFiles(prev => ({ ...prev, [id]: data }));
+      } catch {}
+      setAgentFilesLoading(null);
+    }
   };
 
   useEffect(() => {
@@ -484,34 +523,142 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
         {gwAgents.length > 0 ? (
           <div className="glass-card rounded-xl p-5">
             <div className="space-y-2">
-              {gwAgents.map((a: any) => (
-                <div key={a.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <span className="size-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0" style={{ background: accentAlpha(0.1), color: palette.accent }}>
-                      {(a.name || a.id || '?').charAt(0).toUpperCase()}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold truncate">{a.name || a.id}</div>
-                      <div className="text-[11px] text-muted-foreground font-mono flex gap-2 flex-wrap">
-                        {a.id && a.name && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.id}</span>}
-                        {a.model && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.model}</span>}
-                        {a.provider && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.provider}</span>}
-                        {a.type && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.type}</span>}
+              {gwAgents.map((a: any) => {
+                const isExpanded = expandedAgent === a.id;
+                const cfg = agentConfigs.find((c: any) => c.id === a.id);
+                const files = agentFiles[a.id];
+                const isLoadingFiles = agentFilesLoading === a.id;
+                const model = cfg?.model || agentDefaults?.model?.primary || a.model;
+                const toolLines = describeTools(cfg?.tools);
+                const workflow = a.id?.includes('/') ? a.id.split('/')[0] : null;
+
+                return (
+                  <div key={a.id} className={`rounded-lg transition-colors ${isExpanded ? 'bg-white/[0.03]' : 'bg-white/[0.02] hover:bg-white/[0.04]'}`}>
+                    <button className="flex items-center justify-between p-3 w-full text-left" onClick={() => toggleAgent(a.id)}>
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <span className="size-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0" style={{ background: accentAlpha(0.1), color: palette.accent }}>
+                          {(a.name || a.id || '?').charAt(0).toUpperCase()}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold truncate">{a.name || a.id}</div>
+                          <div className="text-[11px] text-muted-foreground font-mono flex gap-2 flex-wrap">
+                            {a.id && a.name && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.id}</span>}
+                            {workflow && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{workflow}</span>}
+                            {model && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{String(model).replace('anthropic/', '')}</span>}
+                          </div>
+                        </div>
                       </div>
-                      {a.description && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{a.description}</p>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {a.status && (
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                        a.status === 'active' || a.status === 'running' ? 'bg-emerald-400/10 text-emerald-400'
-                        : a.status === 'error' ? 'bg-red-400/10 text-red-400'
-                        : 'bg-zinc-500/10 text-zinc-500'
-                      }`}>{a.status}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {a.status && (
+                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                            a.status === 'active' || a.status === 'running' ? 'bg-emerald-400/10 text-emerald-400'
+                            : a.status === 'error' ? 'bg-red-400/10 text-red-400'
+                            : 'bg-zinc-500/10 text-zinc-500'
+                          }`}>{a.status}</span>
+                        )}
+                        <span className="text-muted-foreground/40 text-xs transition-transform duration-200"
+                          style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>{'\u25B6'}</span>
+                      </div>
+                    </button>
+
+                    {/* Expanded agent detail */}
+                    {isExpanded && (
+                      <div className="px-3 pb-4 pt-0">
+                        {/* Tabs */}
+                        <div className="flex gap-1 mb-3 border-b border-border/20 pb-2">
+                          {(['overview', 'files', 'json'] as const).map(t => (
+                            <button key={t} onClick={() => setAgentTab(t)}
+                              className={`text-[11px] px-3 py-1 rounded-lg transition-colors ${agentTab === t ? 'text-white' : 'text-muted-foreground hover:bg-white/[0.04]'}`}
+                              style={agentTab === t ? { background: palette.accent } : undefined}>
+                              {t === 'overview' ? 'Overview' : t === 'files' ? 'Prompt Files' : 'JSON Config'}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Overview tab */}
+                        {agentTab === 'overview' && (
+                          <div className="space-y-3">
+                            {/* Identity from files */}
+                            {files?.files?.['IDENTITY.md'] && (
+                              <div className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
+                                <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5">Identity</div>
+                                <p className="text-xs text-muted-foreground/80 whitespace-pre-wrap leading-relaxed">{files.files['IDENTITY.md']}</p>
+                              </div>
+                            )}
+                            {/* Soul from files */}
+                            {files?.files?.['SOUL.md'] && (
+                              <div className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
+                                <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5">Soul</div>
+                                <p className="text-xs text-muted-foreground/80 whitespace-pre-wrap leading-relaxed">{files.files['SOUL.md']}</p>
+                              </div>
+                            )}
+                            {/* Tools */}
+                            {toolLines.length > 0 && (
+                              <div className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
+                                <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5">Tool Permissions</div>
+                                <div className="space-y-1">
+                                  {toolLines.map((line, i) => (
+                                    <div key={i} className="text-xs text-muted-foreground/80 font-mono">{line}</div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {/* Paths */}
+                            {cfg && (
+                              <div className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
+                                <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5">Paths</div>
+                                <div className="text-[11px] text-muted-foreground/60 font-mono space-y-0.5">
+                                  {cfg.workspace && <div>Workspace: {cfg.workspace}</div>}
+                                  {cfg.agentDir && <div>Agent Dir: {cfg.agentDir}</div>}
+                                </div>
+                              </div>
+                            )}
+                            {isLoadingFiles && (
+                              <div className="text-xs text-muted-foreground/40 text-center py-4">Loading agent files...</div>
+                            )}
+                            {!isLoadingFiles && !files && !cfg && (
+                              <div className="text-xs text-muted-foreground/40 text-center py-4">No config data available for this agent</div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Files tab */}
+                        {agentTab === 'files' && (
+                          <div className="space-y-3">
+                            {isLoadingFiles ? (
+                              <div className="text-xs text-muted-foreground/40 text-center py-4">Loading...</div>
+                            ) : files?.files ? (
+                              Object.entries(files.files)
+                                .filter(([, content]) => content)
+                                .map(([name, content]) => (
+                                  <div key={name} className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
+                                    <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5 flex items-center gap-2">
+                                      {name}
+                                      <span className="text-muted-foreground/30 font-normal normal-case">{files.workspace}/{name}</span>
+                                    </div>
+                                    <pre className="text-xs text-muted-foreground/80 whitespace-pre-wrap leading-relaxed font-mono max-h-60 overflow-y-auto">{String(content)}</pre>
+                                  </div>
+                                ))
+                            ) : (
+                              <div className="text-xs text-muted-foreground/40 text-center py-4">No prompt files found</div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* JSON tab */}
+                        {agentTab === 'json' && (
+                          <div className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
+                            <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5">openclaw.json &rarr; agents.list["{a.id}"]</div>
+                            <pre className="text-xs text-muted-foreground/80 whitespace-pre-wrap leading-relaxed font-mono max-h-96 overflow-y-auto">
+                              {cfg ? JSON.stringify(cfg, null, 2) : 'No config found — agent may not be in openclaw.json'}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : !agents?.available ? (
