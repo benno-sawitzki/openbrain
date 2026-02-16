@@ -388,6 +388,12 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
   const syncAgeMs = lastSync ? Date.now() - new Date(lastSync).getTime() : Infinity;
   const connected = syncAgeMs < 120_000; // Green if synced within 2 minutes
   const syncTypeCount = syncStatus?.types ? Object.keys(syncStatus.types).length : 0;
+  const syncIntervalMs: number | null = syncStatus?.intervalMs ?? null;
+  const syncIntervalLabel = syncIntervalMs
+    ? syncIntervalMs >= 60000
+      ? `every ${Math.round(syncIntervalMs / 60000)}m`
+      : `every ${Math.round(syncIntervalMs / 1000)}s`
+    : '\u2014';
 
   return (
     <div className="space-y-6">
@@ -600,7 +606,7 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
 
               <div className="rounded-lg bg-white/[0.02] p-3">
                 <div className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">Sync Interval</div>
-                <div className="font-mono text-xs">every 30s</div>
+                <div className="font-mono text-xs">{syncIntervalLabel}</div>
               </div>
             </div>
 

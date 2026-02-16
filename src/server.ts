@@ -47,8 +47,8 @@ if (IS_CLOUD && SUPABASE_URL) {
     const url = typeof input === 'string' ? input : input?.url || '';
     const method = init?.method || 'GET';
     if (url.includes('supabase') && url.includes('workspace_data') && method !== 'GET') {
-      const stack = new Error().stack?.split('\n').slice(1, 4).map(s => s.trim()).join(' <- ') || 'unknown';
-      console.log(`[GHOST-HUNTER] ${method} ${url.slice(0, 120)} FROM: ${stack}`);
+      const stack = new Error().stack?.split('\n').slice(1, 8).map(s => s.trim()).join('\n  ') || 'unknown';
+      console.log(`[GHOST-HUNTER] ${method} ${url.slice(0, 120)}\n  ${stack}`);
       if (init?.body && typeof init.body === 'string' && init.body.includes('"leads"')) {
         try {
           const parsed = JSON.parse(init.body);
@@ -1505,6 +1505,15 @@ app.post('/api/gateway/test', async (req, res) => {
 
 const SYNC_SECRET = process.env.SYNC_SECRET || '';
 
+// Track last two sync timestamps per workspace (in-memory, for interval display)
+const syncTimestamps = new Map<string, [number, number]>(); // [previous, latest]
+
+function recordSyncTimestamp(workspaceId: string) {
+  const prev = syncTimestamps.get(workspaceId);
+  const now = Date.now();
+  syncTimestamps.set(workspaceId, [prev?.[1] ?? now, now]);
+}
+
 // Cloud side: receive sync data from local instance
 if (IS_CLOUD && SYNC_SECRET) {
   app.post('/api/sync', async (req, res) => {
@@ -1609,6 +1618,7 @@ if (IS_CLOUD && SYNC_SECRET) {
         }
       }
 
+      recordSyncTimestamp(workspaceId);
       res.json({ ok: true, synced, merged: mergedBack });
     } catch (e: any) {
       console.error('Sync error:', e.message);
@@ -1712,7 +1722,10 @@ app.get('/api/sync/status', async (req, res) => {
       types[row.data_type] = row.synced_at;
       if (!latest || row.synced_at > latest) latest = row.synced_at;
     }
-    res.json({ syncEnabled: true, types, latest });
+    // Compute observed sync interval from last two POSTs
+    const ts = syncTimestamps.get(user.workspaceId);
+    const intervalMs = ts && ts[1] !== ts[0] ? ts[1] - ts[0] : null;
+    res.json({ syncEnabled: true, types, latest, intervalMs });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
