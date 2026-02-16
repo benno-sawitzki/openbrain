@@ -7,3 +7,4 @@ dist/
 public/assets/
 assets/
 supabase/.temp/
+.vercel
