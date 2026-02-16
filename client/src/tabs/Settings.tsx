@@ -6,9 +6,6 @@ import { palette, status, accentAlpha } from '../theme';
 import { supabase, isCloudMode } from '../supabase';
 import {
   testGateway,
-  fetchGatewayInfo,
-  fetchGatewaySessions,
-  fetchGatewayHealth,
   fetchSyncStatus,
   reconnectGateway,
   deleteAccount,
@@ -50,9 +47,6 @@ export function SettingsTab({ auth, notify }: Props) {
   const [saving, setSaving] = useState(false);
 
   // Connection Status
-  const [gwInfo, setGwInfo] = useState<{ enabled: boolean; connected: boolean } | null>(null);
-  const [gwSessions, setGwSessions] = useState<any>(null);
-  const [gwHealth, setGwHealth] = useState<any>(null);
   const [syncStatus, setSyncStatus] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -63,15 +57,7 @@ export function SettingsTab({ auth, notify }: Props) {
 
   const fetchConnectionData = async () => {
     try {
-      const [info, sessions, health, sync] = await Promise.all([
-        fetchGatewayInfo(),
-        fetchGatewaySessions(),
-        fetchGatewayHealth(),
-        fetchSyncStatus(),
-      ]);
-      setGwInfo(info);
-      setGwSessions(sessions);
-      setGwHealth(health);
+      const sync = await fetchSyncStatus();
       setSyncStatus(sync);
     } catch (e) {
       console.error('Failed to fetch connection data', e);
@@ -186,13 +172,10 @@ export function SettingsTab({ auth, notify }: Props) {
     }
   };
 
-  const connected = gwInfo?.connected || false;
-  const channels = gwHealth?.channels || {};
-  const channelOrder: string[] = gwHealth?.channelOrder || Object.keys(channels);
-  const sessionCount = gwSessions?.sessions?.length || 0;
-  const tunnelUrl = auth.workspace?.gateway_url || '';
   const lastSync = syncStatus?.latest || '';
-  const truncatedUrl = tunnelUrl.length > 40 ? tunnelUrl.slice(0, 40) + '...' : tunnelUrl;
+  const syncAgeMs = lastSync ? Date.now() - new Date(lastSync).getTime() : Infinity;
+  const connected = syncAgeMs < 120_000; // Green if synced within 2 minutes
+  const syncTypeCount = syncStatus?.types ? Object.keys(syncStatus.types).length : 0;
 
   return (
     <div className="space-y-6">
@@ -349,61 +332,27 @@ export function SettingsTab({ auth, notify }: Props) {
                 style={{ background: connected ? '#22C55E' : '#EF4444' }}
               />
               <span className="text-sm font-semibold">
-                {connected ? 'Gateway Connected' : 'Gateway Disconnected'}
+                {connected ? 'Connected' : 'Disconnected'}
               </span>
+              {lastSync && (
+                <span className="text-xs text-muted-foreground">
+                  Last sync: {relativeTime(lastSync)}
+                </span>
+              )}
             </div>
 
             {/* Status details */}
             <div className="grid grid-cols-2 gap-3 text-sm">
-              {tunnelUrl && (
-                <div className="rounded-lg bg-white/[0.02] p-3">
-                  <div className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">Tunnel URL</div>
-                  <div className="font-mono text-xs truncate" title={tunnelUrl}>{truncatedUrl}</div>
-                </div>
-              )}
-
               <div className="rounded-lg bg-white/[0.02] p-3">
-                <div className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">Last Sync</div>
-                <div className="font-mono text-xs">
-                  {lastSync ? relativeTime(lastSync) : 'Never'}
-                </div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">Data Sources</div>
+                <div className="font-mono text-xs">{syncTypeCount} synced</div>
               </div>
 
               <div className="rounded-lg bg-white/[0.02] p-3">
                 <div className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">Sync Interval</div>
                 <div className="font-mono text-xs">every 30s</div>
               </div>
-
-              <div className="rounded-lg bg-white/[0.02] p-3">
-                <div className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">Active Sessions</div>
-                <div className="font-mono text-xs">{sessionCount}</div>
-              </div>
             </div>
-
-            {/* Channel health */}
-            {channelOrder.length > 0 && (
-              <div>
-                <div className="text-[11px] text-muted-foreground uppercase tracking-wide mb-2">Channels</div>
-                <div className="flex flex-wrap gap-2">
-                  {channelOrder.map((ch: string) => {
-                    const info = channels[ch];
-                    const isLinked = info?.linked || info?.running;
-                    return (
-                      <span
-                        key={ch}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-white/[0.03]"
-                      >
-                        <span
-                          className="inline-block w-2 h-2 rounded-full"
-                          style={{ background: isLinked ? '#22C55E' : '#EF4444' }}
-                        />
-                        {ch}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
             <Button
               variant="secondary"
