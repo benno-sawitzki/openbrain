@@ -41,7 +41,7 @@ interface MergedSkill {
 }
 
 const STATUS_COLORS: Record<string, { dot: string; border: string; bg: string; label: string }> = {
-  active: { dot: palette.accent, border: accentAlpha(0.2), bg: accentAlpha(0.04), label: 'Active' },
+  active: { dot: status.success.color, border: status.success.border, bg: status.success.bg, label: 'Active' },
   configured: { dot: palette.subtle, border: subtleAlpha(0.2), bg: subtleAlpha(0.04), label: 'Configured' },
   inactive: { dot: palette.muted, border: mutedAlpha(0.15), bg: 'transparent', label: 'Inactive' },
   'needs-setup': { dot: palette.muted, border: mutedAlpha(0.2), bg: mutedAlpha(0.04), label: 'Needs Setup' },
@@ -305,7 +305,7 @@ export function BrainTab() {
               Skills
               <span className="font-normal text-muted-foreground/60 text-xs">{mergedSkills.length}</span>
               <span className="px-2 py-0.5 rounded-md text-[9px] font-medium"
-                style={{ background: accentAlpha(0.08), color: palette.accent }}>{activeSkills} active</span>
+                style={{ background: status.success.bg, color: status.success.color }}>{activeSkills} active</span>
             </h3>
             <span className="text-muted-foreground/40 text-xs transition-transform duration-200"
               style={{ transform: skillsOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>{'\u25B6'}</span>
