@@ -164,25 +164,22 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
   const [gatewayInfo, setGatewayInfo] = useState<{ enabled: boolean; connected: boolean } | null>(null);
   const [gatewayHealth, setGatewayHealth] = useState<any>(null);
   const [sessions, setSessions] = useState<GatewaySession[]>([]);
-  const [skills, setSkills] = useState<any[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [newJob, setNewJob] = useState({ name: '', cronExpr: '0 9 * * 1-5', tz: 'Europe/Berlin', message: '', sessionTarget: 'isolated' as const });
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
-    const [cronRes, gwInfo, gwHealth, gwSessions, gwSkills] = await Promise.allSettled([
+    const [cronRes, gwInfo, gwHealth, gwSessions] = await Promise.allSettled([
       api.fetchCronJobs(),
       api.fetchGatewayInfo(),
       api.fetchGatewayHealth(),
       api.fetchGatewaySessions(),
-      api.fetchGatewaySkills(),
     ]);
     if (cronRes.status === 'fulfilled') setJobs(cronRes.value?.jobs || (Array.isArray(cronRes.value) ? cronRes.value : []));
     if (gwInfo.status === 'fulfilled') setGatewayInfo(gwInfo.value);
     if (gwHealth.status === 'fulfilled') setGatewayHealth(gwHealth.value);
     if (gwSessions.status === 'fulfilled') setSessions(gwSessions.value?.sessions || []);
-    if (gwSkills.status === 'fulfilled') setSkills(gwSkills.value?.skills || []);
   };
 
   useEffect(() => {
@@ -277,72 +274,41 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
             <p className="text-muted-foreground text-xs text-pretty max-w-sm text-center">Configure gateway credentials in Settings to enable channels, agents, and skills.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Channels */}
-            <div className="glass-card rounded-xl p-5">
-              <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-                <span className="w-1 h-4 rounded-full" style={{ background: palette.accent }} />
-                Channels
-                <span className="text-muted-foreground font-normal text-xs ml-1">({channelOrder.length})</span>
-              </h3>
-              {channelOrder.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No channels configured</p>
-              ) : (
-                <div className="space-y-2">
-                  {channelOrder.map((ch: string) => {
-                    const info = channels[ch] || {};
-                    const isLinked = info.linked || info.running;
-                    return (
-                      <div key={ch} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
-                        <div className="flex items-center gap-3">
-                          <span className="text-lg">{CHANNEL_ICONS[ch] || '\uD83D\uDCE1'}</span>
-                          <div>
-                            <span className="text-sm font-semibold">{CHANNEL_LABELS[ch] || ch}</span>
-                            <div className="text-[11px] text-muted-foreground font-mono flex gap-2 flex-wrap">
-                              {info.phoneNumber && <span>{info.phoneNumber}</span>}
-                              {info.botName && <span>@{info.botName}</span>}
-                              {info.teamName && <span>{info.teamName}</span>}
-                              {info.type && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{info.type}</span>}
-                            </div>
+          <div className="glass-card rounded-xl p-5">
+            <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+              <span className="w-1 h-4 rounded-full" style={{ background: palette.accent }} />
+              Channels
+              <span className="text-muted-foreground font-normal text-xs ml-1">({channelOrder.length})</span>
+            </h3>
+            {channelOrder.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No channels configured</p>
+            ) : (
+              <div className="space-y-2">
+                {channelOrder.map((ch: string) => {
+                  const info = channels[ch] || {};
+                  const isLinked = info.linked || info.running;
+                  return (
+                    <div key={ch} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg">{CHANNEL_ICONS[ch] || '\uD83D\uDCE1'}</span>
+                        <div>
+                          <span className="text-sm font-semibold">{CHANNEL_LABELS[ch] || ch}</span>
+                          <div className="text-[11px] text-muted-foreground font-mono flex gap-2 flex-wrap">
+                            {info.phoneNumber && <span>{info.phoneNumber}</span>}
+                            {info.botName && <span>@{info.botName}</span>}
+                            {info.teamName && <span>{info.teamName}</span>}
+                            {info.type && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{info.type}</span>}
                           </div>
                         </div>
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${isLinked ? 'bg-emerald-400/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'}`}>
-                          {isLinked ? 'active' : 'inactive'}
-                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Skills */}
-            <div className="glass-card rounded-xl p-5">
-              <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-                <span className="w-1 h-4 rounded-full" style={{ background: palette.accent }} />
-                Skills
-                <span className="text-muted-foreground font-normal text-xs ml-1">({skills.length})</span>
-              </h3>
-              {skills.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No skills registered</p>
-              ) : (
-                <div className="space-y-1.5 max-h-72 overflow-y-auto">
-                  {skills.map((sk: any, i: number) => (
-                    <div key={sk.id || sk.name || i} className="flex items-center justify-between p-2.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
-                      <div className="min-w-0 flex-1">
-                        <span className="text-sm font-semibold">{sk.name || sk.id || `Skill ${i + 1}`}</span>
-                        {sk.description && <p className="text-[11px] text-muted-foreground truncate">{sk.description}</p>}
-                      </div>
-                      {sk.enabled !== undefined && (
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${sk.enabled ? 'bg-emerald-400/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'}`}>
-                          {sk.enabled ? 'on' : 'off'}
-                        </span>
-                      )}
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${isLinked ? 'bg-emerald-400/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'}`}>
+                        {isLinked ? 'active' : 'inactive'}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -352,160 +318,13 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
             <span>{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
             <span>{formatTokens(totalTokens)} total tokens</span>
             <span>{gwAgents.length} agent{gwAgents.length !== 1 ? 's' : ''}</span>
-            <span>{skills.length} skill{skills.length !== 1 ? 's' : ''}</span>
           </div>
         )}
       </section>
 
       <div className="h-px bg-border/30" />
 
-      {/* ━━━ SECTION 2: AGENTS ━━━ */}
-      <section>
-        <div className="flex items-center gap-3 mb-5">
-          <h2 className="text-xl font-bold">Agents</h2>
-          <span className="text-[10px] text-muted-foreground font-mono">
-            {gwAgents.length > 0 ? `${gwAgents.length} registered` : agents?.source === 'antfarm' ? 'antfarm' : ''}
-          </span>
-        </div>
-
-        {gwAgents.length > 0 ? (
-          <div className="glass-card rounded-xl p-5">
-            <div className="space-y-2">
-              {gwAgents.map((a: any) => (
-                <div key={a.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <span className="size-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0" style={{ background: accentAlpha(0.1), color: palette.accent }}>
-                      {(a.name || a.id || '?').charAt(0).toUpperCase()}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold truncate">{a.name || a.id}</div>
-                      <div className="text-[11px] text-muted-foreground font-mono flex gap-2 flex-wrap">
-                        {a.id && a.name && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.id}</span>}
-                        {a.model && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.model}</span>}
-                        {a.provider && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.provider}</span>}
-                        {a.type && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.type}</span>}
-                      </div>
-                      {a.description && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{a.description}</p>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {a.status && (
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                        a.status === 'active' || a.status === 'running' ? 'bg-emerald-400/10 text-emerald-400'
-                        : a.status === 'error' ? 'bg-red-400/10 text-red-400'
-                        : 'bg-zinc-500/10 text-zinc-500'
-                      }`}>{a.status}</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : !agents?.available ? (
-          <div className="glass-card rounded-xl flex flex-col items-center justify-center py-12">
-            <span className="text-3xl mb-3 opacity-40">{'\uD83E\uDD16'}</span>
-            <h3 className="text-sm font-semibold mb-1">No Agents Available</h3>
-            <p className="text-muted-foreground text-xs text-pretty max-w-sm text-center">Connect the Gateway or set up Antfarm to see agents</p>
-          </div>
-        ) : (
-          <>
-            <div className="mb-4 text-sm font-medium flex items-center gap-2" style={{ color: palette.accent }}>
-              <span className="size-2 rounded-full" style={{ background: palette.accent }} />
-              Antfarm Connected
-            </div>
-
-            <Card className="glass-card rounded-xl border-border/50 mb-4">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <span className="w-1 h-4 rounded-full" style={{ background: palette.accent }} />
-                  Workflows
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2.5">
-                {(agents.workflows || []).length ? (agents.workflows || []).map((w: any) => (
-                  <div key={w.id || w.name} className="rounded-xl border border-border/30 p-4 hover:bg-white/[0.02] transition-colors">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold">{w.name || w.id || 'Workflow'}</span>
-                      {w.status && (
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                          w.status === 'running' ? 'bg-emerald-400/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'
-                        }`}>{w.status}</span>
-                      )}
-                    </div>
-                    {w.task && <div className="text-xs text-muted-foreground mt-1.5 text-pretty">{w.task}</div>}
-                  </div>
-                )) : <p className="text-sm text-muted-foreground py-4 text-center text-pretty">No active workflows</p>}
-              </CardContent>
-            </Card>
-
-            {agents.logs && (
-              <Card className="glass-card rounded-xl border-border/50">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <span className="w-1 h-4 rounded-full bg-red-500" />
-                    Recent Logs
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <pre className="text-xs text-muted-foreground/70 whitespace-pre-wrap max-h-72 overflow-y-auto font-mono leading-relaxed">{agents.logs}</pre>
-                </CardContent>
-              </Card>
-            )}
-          </>
-        )}
-      </section>
-
-      <div className="h-px bg-border/30" />
-
-      {/* ━━━ SECTION 3: SESSIONS ━━━ */}
-      {gwConnected && sessions.length > 0 && (
-        <>
-          <section>
-            <div className="flex items-center gap-3 mb-5">
-              <h2 className="text-xl font-bold">Sessions</h2>
-              <span className="text-[10px] text-muted-foreground font-mono">{sessions.length} active</span>
-              <span className="text-[10px] text-muted-foreground font-mono tabular-nums">{formatTokens(totalTokens)} tokens</span>
-            </div>
-
-            <div className="glass-card rounded-xl p-5">
-              <div className="space-y-1.5">
-                {sortedSessions.map(s => (
-                  <div key={s.key} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <span className={`size-2 rounded-full shrink-0 ${s.channel ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold truncate">{s.displayName}</div>
-                        <div className="text-[11px] text-muted-foreground font-mono flex gap-2 flex-wrap">
-                          {s.channel && <span>{CHANNEL_LABELS[s.channel] || s.channel}</span>}
-                          {s.chatType && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{s.chatType}</span>}
-                          {s.model && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{s.model}</span>}
-                          {s.modelProvider && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{s.modelProvider}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-[11px] text-muted-foreground font-mono tabular-nums shrink-0">
-                      {(s.inputTokens || s.outputTokens) ? (
-                        <span className="flex gap-1.5">
-                          <span title="Input tokens">{'\u2B06'} {formatTokens(s.inputTokens)}</span>
-                          <span title="Output tokens">{'\u2B07'} {formatTokens(s.outputTokens)}</span>
-                        </span>
-                      ) : s.totalTokens ? (
-                        <span>{formatTokens(s.totalTokens)} tok</span>
-                      ) : null}
-                      {s.contextTokens ? <span title="Context window">{'\uD83D\uDCCB'} {formatTokens(s.contextTokens)}</span> : null}
-                      <span>{formatAge(Date.now() - s.updatedAt)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <div className="h-px bg-border/30" />
-        </>
-      )}
-
-      {/* ━━━ SECTION 4: AUTOMATIONS (CRON) ━━━ */}
+      {/* ━━━ SECTION 2: AUTOMATIONS (CRON) ━━━ */}
       <section>
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
@@ -650,6 +469,150 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
           </DialogContent>
         </Dialog>
       </section>
+
+      <div className="h-px bg-border/30" />
+
+      {/* ━━━ SECTION 3: AGENTS ━━━ */}
+      <section>
+        <div className="flex items-center gap-3 mb-5">
+          <h2 className="text-xl font-bold">Agents</h2>
+          <span className="text-[10px] text-muted-foreground font-mono">
+            {gwAgents.length > 0 ? `${gwAgents.length} registered` : agents?.source === 'antfarm' ? 'antfarm' : ''}
+          </span>
+        </div>
+
+        {gwAgents.length > 0 ? (
+          <div className="glass-card rounded-xl p-5">
+            <div className="space-y-2">
+              {gwAgents.map((a: any) => (
+                <div key={a.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <span className="size-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0" style={{ background: accentAlpha(0.1), color: palette.accent }}>
+                      {(a.name || a.id || '?').charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold truncate">{a.name || a.id}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono flex gap-2 flex-wrap">
+                        {a.id && a.name && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.id}</span>}
+                        {a.model && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.model}</span>}
+                        {a.provider && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.provider}</span>}
+                        {a.type && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{a.type}</span>}
+                      </div>
+                      {a.description && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{a.description}</p>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {a.status && (
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                        a.status === 'active' || a.status === 'running' ? 'bg-emerald-400/10 text-emerald-400'
+                        : a.status === 'error' ? 'bg-red-400/10 text-red-400'
+                        : 'bg-zinc-500/10 text-zinc-500'
+                      }`}>{a.status}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : !agents?.available ? (
+          <div className="glass-card rounded-xl flex flex-col items-center justify-center py-12">
+            <span className="text-3xl mb-3 opacity-40">{'\uD83E\uDD16'}</span>
+            <h3 className="text-sm font-semibold mb-1">No Agents Available</h3>
+            <p className="text-muted-foreground text-xs text-pretty max-w-sm text-center">Connect the Gateway or set up Antfarm to see agents</p>
+          </div>
+        ) : (
+          <>
+            <div className="mb-4 text-sm font-medium flex items-center gap-2" style={{ color: palette.accent }}>
+              <span className="size-2 rounded-full" style={{ background: palette.accent }} />
+              Antfarm Connected
+            </div>
+
+            <Card className="glass-card rounded-xl border-border/50 mb-4">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <span className="w-1 h-4 rounded-full" style={{ background: palette.accent }} />
+                  Workflows
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2.5">
+                {(agents.workflows || []).length ? (agents.workflows || []).map((w: any) => (
+                  <div key={w.id || w.name} className="rounded-xl border border-border/30 p-4 hover:bg-white/[0.02] transition-colors">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">{w.name || w.id || 'Workflow'}</span>
+                      {w.status && (
+                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                          w.status === 'running' ? 'bg-emerald-400/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'
+                        }`}>{w.status}</span>
+                      )}
+                    </div>
+                    {w.task && <div className="text-xs text-muted-foreground mt-1.5 text-pretty">{w.task}</div>}
+                  </div>
+                )) : <p className="text-sm text-muted-foreground py-4 text-center text-pretty">No active workflows</p>}
+              </CardContent>
+            </Card>
+
+            {agents.logs && (
+              <Card className="glass-card rounded-xl border-border/50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <span className="w-1 h-4 rounded-full bg-red-500" />
+                    Recent Logs
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <pre className="text-xs text-muted-foreground/70 whitespace-pre-wrap max-h-72 overflow-y-auto font-mono leading-relaxed">{agents.logs}</pre>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
+      </section>
+
+      <div className="h-px bg-border/30" />
+
+      {/* ━━━ SECTION 4: SESSIONS ━━━ */}
+      {gwConnected && sessions.length > 0 && (
+        <section>
+          <div className="flex items-center gap-3 mb-5">
+            <h2 className="text-xl font-bold">Sessions</h2>
+            <span className="text-[10px] text-muted-foreground font-mono">{sessions.length} active</span>
+            <span className="text-[10px] text-muted-foreground font-mono tabular-nums">{formatTokens(totalTokens)} tokens</span>
+          </div>
+
+          <div className="glass-card rounded-xl p-5">
+            <div className="space-y-1.5">
+              {sortedSessions.map(s => (
+                <div key={s.key} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <span className={`size-2 rounded-full shrink-0 ${s.channel ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold truncate">{s.displayName}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono flex gap-2 flex-wrap">
+                        {s.channel && <span>{CHANNEL_LABELS[s.channel] || s.channel}</span>}
+                        {s.chatType && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{s.chatType}</span>}
+                        {s.model && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{s.model}</span>}
+                        {s.modelProvider && <span className="px-1.5 py-0 rounded bg-white/[0.04] text-[10px]">{s.modelProvider}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-[11px] text-muted-foreground font-mono tabular-nums shrink-0">
+                    {(s.inputTokens || s.outputTokens) ? (
+                      <span className="flex gap-1.5">
+                        <span title="Input tokens">{'\u2B06'} {formatTokens(s.inputTokens)}</span>
+                        <span title="Output tokens">{'\u2B07'} {formatTokens(s.outputTokens)}</span>
+                      </span>
+                    ) : s.totalTokens ? (
+                      <span>{formatTokens(s.totalTokens)} tok</span>
+                    ) : null}
+                    {s.contextTokens ? <span title="Context window">{'\uD83D\uDCCB'} {formatTokens(s.contextTokens)}</span> : null}
+                    <span>{formatAge(Date.now() - s.updatedAt)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
