@@ -250,11 +250,12 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
   };
 
   const handleDelete = async (id: string) => {
+    // Optimistic: remove from UI immediately
+    setState((prev: AppState) => ({ ...prev, tasks: prev.tasks.filter(t => t.id !== id) }));
+    notify('🗑️ Task deleted');
     try {
       await api.deleteTask(id);
-      notify('🗑️ Task deleted');
-      onRefresh();
-    } catch { notify('❌ Failed to delete task'); }
+    } catch { notify('❌ Failed to delete task'); onRefresh(); }
   };
 
   const activeTask = tasks.find(t => t.id === activeId);

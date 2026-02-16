@@ -37,9 +37,40 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const IS_CLOUD = !!(SUPABASE_URL && SUPABASE_SERVICE_KEY);
 const supabase = IS_CLOUD ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY) : null;
 
-// Track when data was modified via the cloud UI so sync doesn't overwrite it
-const cloudEditTimestamps = new Map<string, number>();
-const CLOUD_EDIT_GUARD_MS = 120_000; // Protect cloud edits for 2 minutes
+// Track IDs deleted via cloud UI so local sync doesn't re-add them
+const cloudDeletedIds = new Map<string, Set<string>>(); // key: "workspaceId:dataType" → Set of deleted IDs
+
+function trackCloudDeletion(workspaceId: string, dataType: string, id: string) {
+  const key = `${workspaceId}:${dataType}`;
+  if (!cloudDeletedIds.has(key)) cloudDeletedIds.set(key, new Set());
+  cloudDeletedIds.get(key)!.add(id);
+}
+
+// Merge local array data with cloud array data by ID, keeping newer updatedAt
+function mergeArrayData(localItems: any[], cloudItems: any[], deletedIds: Set<string> | undefined): any[] {
+  const merged = new Map<string, any>();
+  // Start with cloud items (these are the "truth" for cloud-edited items)
+  for (const item of cloudItems) {
+    if (item.id) merged.set(item.id, item);
+  }
+  // Merge local items: add new ones, update existing only if local is newer
+  for (const item of localItems) {
+    if (!item.id) continue;
+    if (deletedIds?.has(item.id)) continue; // Don't re-add cloud-deleted items
+    const existing = merged.get(item.id);
+    if (!existing) {
+      merged.set(item.id, item); // New item from local
+    } else {
+      // Keep whichever has the newer updatedAt
+      const localTime = new Date(item.updatedAt || item.createdAt || 0).getTime();
+      const cloudTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+      if (localTime > cloudTime) {
+        merged.set(item.id, item);
+      }
+    }
+  }
+  return Array.from(merged.values());
+}
 
 // Local mode: direct Gateway connection
 if (!IS_CLOUD) {
@@ -93,16 +124,14 @@ async function readSyncedData(req: express.Request, dataType: string): Promise<a
 async function writeSyncedData(req: express.Request, dataType: string, payload: any): Promise<boolean> {
   if (!IS_CLOUD || !supabase) return false;
   const user = await resolveUser(req);
-  if (!user) { console.log(`[sync-guard] writeSyncedData(${dataType}): no user`); return false; }
+  if (!user) return false;
   const { error } = await supabase.from('workspace_data').upsert({
     workspace_id: user.workspaceId,
     data_type: dataType,
     data: payload,
     synced_at: new Date().toISOString(),
   }, { onConflict: 'workspace_id,data_type' });
-  if (error) { console.error(`[sync-guard] writeSyncedData(${dataType}) FAILED:`, error.message); return false; }
-  cloudEditTimestamps.set(`${user.workspaceId}:${dataType}`, Date.now());
-  console.log(`[sync-guard] writeSyncedData(${dataType}): OK, guard set for ${user.workspaceId}`);
+  if (error) { console.error(`[writeSyncedData] ${dataType} FAILED:`, error.message); return false; }
   return true;
 }
 
@@ -490,6 +519,8 @@ app.delete('/api/tasks/:id', async (req, res) => {
     if (idx === -1) return res.status(404).json({ error: 'task not found' });
     const removed = tasks.splice(idx, 1)[0];
     if (IS_CLOUD) {
+      const user = await resolveUser(req);
+      if (user) trackCloudDeletion(user.workspaceId, 'tasks', removed.id);
       await writeSyncedData(req, 'tasks', tasks);
     } else {
       fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(tasks, null, 2));
@@ -569,13 +600,11 @@ app.post('/api/leads/:id/move', async (req, res) => {
     );
     if (!lead) return res.status(404).json({ error: 'lead not found' });
 
-    console.log(`[move-lead] ${lead.name}: ${lead.stage} → ${stage}`);
     lead.stage = stage;
     lead.updatedAt = new Date().toISOString();
 
     if (IS_CLOUD) {
-      const ok = await writeSyncedData(req, 'leads', leads);
-      console.log(`[move-lead] writeSyncedData result: ${ok}`);
+      await writeSyncedData(req, 'leads', leads);
     } else {
       fs.writeFileSync(p('.leadpipe', 'leads.json'), JSON.stringify(leads, null, 2));
     }
@@ -1296,20 +1325,37 @@ if (IS_CLOUD && SYNC_SECRET) {
     }
 
     try {
-      const dataTypes = ['tasks', 'leads', 'content', 'activity', 'stats', 'config', 'inbox'] as const;
+      // Array types need merge (cloud edits + local additions coexist)
+      const arrayTypes = ['tasks', 'leads', 'content'] as const;
+      // Non-array types are safe to overwrite (read-only in cloud UI)
+      const replaceTypes = ['activity', 'stats', 'config', 'inbox'] as const;
       let synced = 0;
 
-      for (const dt of dataTypes) {
-        if (req.body[dt] !== undefined) {
-          // Skip if this data type was recently edited via the cloud UI
-          const guardKey = `${workspaceId}:${dt}`;
-          const lastCloudEdit = cloudEditTimestamps.get(guardKey);
-          if (lastCloudEdit && Date.now() - lastCloudEdit < CLOUD_EDIT_GUARD_MS) {
-            console.log(`[sync-guard] SKIPPING ${dt} — cloud-edited ${Math.round((Date.now() - lastCloudEdit) / 1000)}s ago`);
-            continue;
-          }
-          console.log(`[sync-guard] syncing ${dt} (no guard)`);
+      for (const dt of arrayTypes) {
+        if (req.body[dt] !== undefined && Array.isArray(req.body[dt])) {
+          // Read current cloud data for this type
+          const { data: row } = await supabase
+            .from('workspace_data')
+            .select('data')
+            .eq('workspace_id', workspaceId)
+            .eq('data_type', dt)
+            .single();
+          const cloudItems: any[] = row?.data || [];
+          const deletedIds = cloudDeletedIds.get(`${workspaceId}:${dt}`);
+          const merged = mergeArrayData(req.body[dt], cloudItems, deletedIds);
 
+          await supabase.from('workspace_data').upsert({
+            workspace_id: workspaceId,
+            data_type: dt,
+            data: merged,
+            synced_at: new Date().toISOString(),
+          }, { onConflict: 'workspace_id,data_type' });
+          synced++;
+        }
+      }
+
+      for (const dt of replaceTypes) {
+        if (req.body[dt] !== undefined) {
           await supabase.from('workspace_data').upsert({
             workspace_id: workspaceId,
             data_type: dt,
