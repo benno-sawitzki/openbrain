@@ -100,16 +100,20 @@ async function writeSyncedData(req: express.Request, dataType: string, payload: 
 }
 
 // --- Workflows ---
-const wfStorage = IS_CLOUD
-  ? null // Cloud storage created per-request in router
-  : new LocalWorkflowStorage();
+const localWfStorage = new LocalWorkflowStorage();
+const localWfEngine = new WorkflowEngine(localWfStorage);
 
-function getWorkflowStorage(req: express.Request): LocalWorkflowStorage {
-  // For now, local storage only. Cloud mode will be added later.
-  return wfStorage as LocalWorkflowStorage;
+async function getWorkflowContext(req: any): Promise<{ storage: import('./workflows/storage').WorkflowStorage; engine: WorkflowEngine }> {
+  if (IS_CLOUD && supabase) {
+    const user = await resolveUser(req);
+    if (user) {
+      const storage = new CloudWorkflowStorage(supabase, user.workspaceId);
+      const engine = new WorkflowEngine(storage);
+      return { storage, engine };
+    }
+  }
+  return { storage: localWfStorage, engine: localWfEngine };
 }
-
-const wfEngine = wfStorage ? new WorkflowEngine(wfStorage) : null;
 
 function authenticateRunToken(req: any): string | null {
   const header = req.headers['x-run-token'] as string;
@@ -283,9 +287,7 @@ function parseWorkflows(output: string): any[] {
 app.use(express.json());
 
 // Mount workflow router (needs JSON parsing from above)
-if (wfEngine && wfStorage) {
-  app.use('/api/wf', createWorkflowRouter(wfEngine, wfStorage, authenticateRunToken));
-}
+app.use('/api/wf', createWorkflowRouter(getWorkflowContext, authenticateRunToken));
 
 app.post('/api/tasks', async (req, res) => {
   const { content, energy, estimate, due, campaign, stake, tags } = req.body;

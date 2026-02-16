@@ -118,7 +118,7 @@ export class CloudWorkflowStorage implements WorkflowStorage {
       workspace_id: this.workspaceId,
       data_type: dataType,
       data: payload,
-      updated_at: new Date().toISOString(),
+      synced_at: new Date().toISOString(),
     }, { onConflict: 'workspace_id,data_type' });
   }
 

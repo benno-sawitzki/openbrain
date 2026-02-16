@@ -1,20 +1,25 @@
 import { Router } from 'express';
 import type { WorkflowStorage } from './storage';
-import type { WorkflowEngine } from './engine';
+import { WorkflowEngine } from './engine';
 import type { WorkflowDef } from './types';
 import crypto from 'crypto';
 
+interface WorkflowContext {
+  storage: WorkflowStorage;
+  engine: WorkflowEngine;
+}
+
 export function createWorkflowRouter(
-  engine: WorkflowEngine,
-  storage: WorkflowStorage,
+  getContext: (req: any) => Promise<WorkflowContext>,
   authenticateRunToken: (req: any) => string | null,
 ): Router {
   const router = Router();
 
   // --- Definition endpoints ---
 
-  router.get('/definitions', async (_req, res) => {
+  router.get('/definitions', async (req, res) => {
     try {
+      const { storage } = await getContext(req);
       const defs = await storage.listDefs();
       res.json(defs);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -22,6 +27,7 @@ export function createWorkflowRouter(
 
   router.post('/definitions', async (req, res) => {
     try {
+      const { storage } = await getContext(req);
       const body = req.body;
       const def: WorkflowDef = {
         id: body.id || crypto.randomUUID(),
@@ -40,6 +46,7 @@ export function createWorkflowRouter(
 
   router.get('/runs', async (req, res) => {
     try {
+      const { storage } = await getContext(req);
       const filter: any = {};
       if (req.query.workflowId) filter.workflowId = req.query.workflowId;
       if (req.query.status) filter.status = req.query.status;
@@ -50,6 +57,7 @@ export function createWorkflowRouter(
 
   router.post('/runs', async (req, res) => {
     try {
+      const { storage, engine } = await getContext(req);
       const { workflowId, task } = req.body;
       if (!workflowId || !task) return res.status(400).json({ error: 'workflowId and task required' });
       const def = await storage.getDef(workflowId);
@@ -61,6 +69,7 @@ export function createWorkflowRouter(
 
   router.get('/runs/:id', async (req, res) => {
     try {
+      const { storage } = await getContext(req);
       const run = await storage.getRun(req.params.id);
       if (!run) return res.status(404).json({ error: 'Run not found' });
       res.json(run);
@@ -69,6 +78,7 @@ export function createWorkflowRouter(
 
   router.post('/runs/:id/resume', async (req, res) => {
     try {
+      const { engine } = await getContext(req);
       await engine.resumeRun(req.params.id);
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -76,6 +86,7 @@ export function createWorkflowRouter(
 
   router.post('/runs/:id/pause', async (req, res) => {
     try {
+      const { engine } = await getContext(req);
       await engine.pauseRun(req.params.id);
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -83,6 +94,7 @@ export function createWorkflowRouter(
 
   router.delete('/runs/:id', async (req, res) => {
     try {
+      const { storage, engine } = await getContext(req);
       await engine.cancelRun(req.params.id);
       await storage.deleteRun(req.params.id);
       res.json({ ok: true });
@@ -93,6 +105,7 @@ export function createWorkflowRouter(
 
   router.post('/claim/:agentId', async (req, res) => {
     try {
+      const { engine } = await getContext(req);
       const runToken = authenticateRunToken(req) || undefined;
       const result = await engine.claimStep(req.params.agentId, runToken);
       res.json(result);
@@ -101,6 +114,7 @@ export function createWorkflowRouter(
 
   router.post('/complete/:stepId', async (req, res) => {
     try {
+      const { engine } = await getContext(req);
       const output = req.body.output || '';
       const result = await engine.completeStep(req.params.stepId, output);
       res.json(result);
@@ -109,6 +123,7 @@ export function createWorkflowRouter(
 
   router.post('/fail/:stepId', async (req, res) => {
     try {
+      const { engine } = await getContext(req);
       const error = req.body.error || 'Unknown error';
       const result = await engine.failStep(req.params.stepId, error);
       res.json(result);
