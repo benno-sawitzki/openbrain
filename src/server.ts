@@ -519,52 +519,64 @@ app.get('/api/tasks/:id/spec', (req, res) => {
 });
 
 // Reorder tasks
-app.post('/api/tasks/reorder', (req, res) => {
+app.post('/api/tasks/reorder', async (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
 
-  const tasksPath = p('.taskpipe', 'tasks.json');
-  const tasks = readJSON(tasksPath);
-  if (!tasks) return res.status(500).json({ error: 'could not read tasks' });
+  try {
+    const tasks = IS_CLOUD
+      ? ((await readSyncedData(req, 'tasks')) || [])
+      : (readJSON(p('.taskpipe', 'tasks.json')) || []);
 
-  const taskMap = new Map(tasks.map((t: any) => [t.id, t]));
-  const reordered: any[] = [];
-  for (const id of ids) {
-    const task = taskMap.get(id);
-    if (task) {
-      reordered.push(task);
-      taskMap.delete(id);
+    const taskMap = new Map(tasks.map((t: any) => [t.id, t]));
+    const reordered: any[] = [];
+    for (const id of ids) {
+      const task = taskMap.get(id);
+      if (task) {
+        reordered.push(task);
+        taskMap.delete(id);
+      }
     }
-  }
-  // Append any tasks not in the ids array
-  for (const task of taskMap.values()) {
-    reordered.push(task);
-  }
+    for (const task of taskMap.values()) {
+      reordered.push(task);
+    }
 
-  fs.writeFileSync(tasksPath, JSON.stringify(reordered, null, 2));
-  res.json({ ok: true });
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'tasks', reordered);
+    } else {
+      fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(reordered, null, 2));
+    }
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Move lead to new stage
 
-app.post('/api/leads/:id/move', (req, res) => {
+app.post('/api/leads/:id/move', async (req, res) => {
   const { id } = req.params;
   const { stage } = req.body;
   if (!stage) return res.status(400).json({ error: 'stage required' });
 
-  const leadsPath = p('.leadpipe', 'leads.json');
-  const leads = readJSON(leadsPath);
-  if (!leads) return res.status(500).json({ error: 'could not read leads' });
+  try {
+    const leads = IS_CLOUD
+      ? ((await readSyncedData(req, 'leads')) || [])
+      : (readJSON(p('.leadpipe', 'leads.json')) || []);
 
-  const lead = leads.find((l: any) =>
-    id.length < 36 ? l.id.startsWith(id) : l.id === id
-  );
-  if (!lead) return res.status(404).json({ error: 'lead not found' });
+    const lead = leads.find((l: any) =>
+      id.length < 36 ? l.id.startsWith(id) : l.id === id
+    );
+    if (!lead) return res.status(404).json({ error: 'lead not found' });
 
-  lead.stage = stage;
-  lead.updatedAt = new Date().toISOString();
-  fs.writeFileSync(leadsPath, JSON.stringify(leads, null, 2));
-  res.json(lead);
+    lead.stage = stage;
+    lead.updatedAt = new Date().toISOString();
+
+    if (IS_CLOUD) {
+      await writeSyncedData(req, 'leads', leads);
+    } else {
+      fs.writeFileSync(p('.leadpipe', 'leads.json'), JSON.stringify(leads, null, 2));
+    }
+    res.json(lead);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // General CLI helper for local commands (gog, codexbar, etc.)
