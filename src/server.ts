@@ -5,6 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import yaml from 'js-yaml';
 import { exec } from 'child_process';
+import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { initLocalGateway, getLocalGateway, gatewayPool, GatewayClient } from './gateway';
 import type { GatewayConfig } from './gateway';
@@ -101,12 +102,24 @@ if (!IS_CLOUD) {
   initLocalGateway();
 }
 
-// Auth middleware for cloud mode — extracts user from Bearer token
+// Auth middleware for cloud mode — extracts user from Bearer token or API key
 async function resolveUser(req: express.Request): Promise<{ userId: string; workspaceId: string; gatewayConfig: GatewayConfig | null } | null> {
   if (!IS_CLOUD || !supabase) return null;
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) return null;
   const token = auth.slice(7);
+
+  // API key auth: tokens starting with 'ob_' are looked up directly against workspaces
+  if (token.startsWith('ob_')) {
+    const { data: workspace } = await supabase.from('workspaces').select('*').eq('api_key', token).single();
+    if (!workspace) return null;
+    const gatewayConfig = workspace.gateway_url && workspace.gateway_token
+      ? { url: workspace.gateway_url, token: workspace.gateway_token }
+      : null;
+    return { userId: workspace.user_id, workspaceId: workspace.id, gatewayConfig };
+  }
+
+  // Standard Supabase auth
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) return null;
   const { data: workspace } = await supabase.from('workspaces').select('*').eq('user_id', user.id).single();
@@ -1556,6 +1569,195 @@ app.post('/api/gateway/test', async (req, res) => {
   } catch (e: any) {
     res.json({ ok: false, error: e.message });
   }
+});
+
+// ═══════════════════════════════════════════
+// API Key Management (cloud only)
+// ═══════════════════════════════════════════
+
+// Generate a new API key for the authenticated workspace
+app.post('/api/keys', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const key = 'ob_' + crypto.randomBytes(16).toString('hex');
+    const { error } = await supabase.from('workspaces').update({ api_key: key }).eq('id', user.workspaceId);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ key });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Check if an API key exists for the authenticated workspace
+app.get('/api/keys', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const { data: workspace } = await supabase.from('workspaces').select('api_key').eq('id', user.workspaceId).single();
+    if (!workspace?.api_key) return res.json({ exists: false });
+    const key = workspace.api_key;
+    const masked = key.slice(0, 3) + '****' + key.slice(-4);
+    res.json({ exists: true, masked });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Revoke the API key for the authenticated workspace
+app.delete('/api/keys', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const { error } = await supabase.from('workspaces').update({ api_key: null }).eq('id', user.workspaceId);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════
+// Bulk write endpoints (cloud only, for CLI tools)
+// ═══════════════════════════════════════════
+
+app.put('/api/tasks/bulk', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    await withWriteLock(`sync:${user.workspaceId}`, async () => {
+      const { error } = await supabase!.from('workspace_data').upsert({
+        workspace_id: user.workspaceId,
+        data_type: 'tasks',
+        data: req.body,
+        synced_at: new Date().toISOString(),
+      }, { onConflict: 'workspace_id,data_type' });
+      if (error) throw new Error(error.message);
+    });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/leads/bulk', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    await withWriteLock(`sync:${user.workspaceId}`, async () => {
+      const { error } = await supabase!.from('workspace_data').upsert({
+        workspace_id: user.workspaceId,
+        data_type: 'leads',
+        data: req.body,
+        synced_at: new Date().toISOString(),
+      }, { onConflict: 'workspace_id,data_type' });
+      if (error) throw new Error(error.message);
+    });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/content/bulk', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    await withWriteLock(`sync:${user.workspaceId}`, async () => {
+      const { error } = await supabase!.from('workspace_data').upsert({
+        workspace_id: user.workspaceId,
+        data_type: 'content',
+        data: req.body,
+        synced_at: new Date().toISOString(),
+      }, { onConflict: 'workspace_id,data_type' });
+      if (error) throw new Error(error.message);
+    });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/patterns', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    await withWriteLock(`sync:${user.workspaceId}`, async () => {
+      const { error } = await supabase!.from('workspace_data').upsert({
+        workspace_id: user.workspaceId,
+        data_type: 'patterns',
+        data: req.body,
+        synced_at: new Date().toISOString(),
+      }, { onConflict: 'workspace_id,data_type' });
+      if (error) throw new Error(error.message);
+    });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/patterns', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.json({ completions: [], dailyCompletions: {} });
+  const data = await readSyncedData(req, 'patterns');
+  res.json(data || { completions: [], dailyCompletions: {} });
+});
+
+app.put('/api/config/:tool', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const { tool } = req.params;
+  if (!['taskpipe', 'leadpipe', 'contentq'].includes(tool)) {
+    return res.status(400).json({ error: 'tool must be taskpipe, leadpipe, or contentq' });
+  }
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    await withWriteLock(`sync:${user.workspaceId}`, async () => {
+      // Read existing config
+      const { data: row } = await supabase!
+        .from('workspace_data')
+        .select('data')
+        .eq('workspace_id', user.workspaceId)
+        .eq('data_type', 'config')
+        .single();
+      const config = row?.data || { taskpipe: {}, leadpipe: {}, contentq: {} };
+      // Replace just the tool's config
+      config[tool] = req.body;
+      const { error } = await supabase!.from('workspace_data').upsert({
+        workspace_id: user.workspaceId,
+        data_type: 'config',
+        data: config,
+        synced_at: new Date().toISOString(),
+      }, { onConflict: 'workspace_id,data_type' });
+      if (error) throw new Error(error.message);
+    });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/config/:tool', async (req, res) => {
+  const { tool } = req.params;
+  if (!['taskpipe', 'leadpipe', 'contentq'].includes(tool)) {
+    return res.status(400).json({ error: 'tool must be taskpipe, leadpipe, or contentq' });
+  }
+  if (IS_CLOUD) {
+    const data = await readSyncedData(req, 'config');
+    return res.json(data?.[tool] || {});
+  }
+  // Local mode: read from config files
+  const config = readYAML(p(`.${tool}`, 'config.yaml')) || {};
+  res.json(config);
+});
+
+app.put('/api/inbox', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    await withWriteLock(`sync:${user.workspaceId}`, async () => {
+      const { error } = await supabase!.from('workspace_data').upsert({
+        workspace_id: user.workspaceId,
+        data_type: 'inbox',
+        data: req.body,
+        synced_at: new Date().toISOString(),
+      }, { onConflict: 'workspace_id,data_type' });
+      if (error) throw new Error(error.message);
+    });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // ═══════════════════════════════════════════

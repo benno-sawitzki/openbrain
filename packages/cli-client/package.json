@@ -1,0 +1,16 @@
+{
+  "name": "@openbrain/cli-client",
+  "version": "0.1.0",
+  "description": "Shared CLI client for Open Brain cloud API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3"
+  }
+}
