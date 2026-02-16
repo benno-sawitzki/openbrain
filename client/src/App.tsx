@@ -294,7 +294,7 @@ export default function App() {
         {tab === 'brain' && <BrainTab />}
         {tab === 'feed' && <FeedTab activity={state.activity} onNavigate={(t) => setTab(t as TabId)} />}
         {tab === 'system' && <SystemTab agents={state.agents} notify={notify} />}
-        {tab === 'settings' && <SettingsTab auth={auth} notify={notify} />}
+        {tab === 'settings' && <SettingsTab auth={auth} notify={notify} onRefresh={refresh} />}
       </main>
     </div>
   );

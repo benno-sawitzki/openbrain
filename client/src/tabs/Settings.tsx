@@ -2,6 +2,13 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { palette, status, accentAlpha } from '../theme';
 import { supabase, isCloudMode } from '../supabase';
 import {
@@ -9,6 +16,10 @@ import {
   fetchSyncStatus,
   reconnectGateway,
   deleteAccount,
+  fetchProviderRegistry,
+  fetchProviderConfig,
+  saveProviderConfig,
+  testProviderConnection,
 } from '../api';
 
 /* ── Types ── */
@@ -21,6 +32,23 @@ interface Props {
     updateWorkspace: (data: any) => Promise<string | null>;
   };
   notify: (msg: string) => void;
+  onRefresh?: () => void;
+}
+
+interface FieldDef {
+  key: string;
+  label: string;
+  type: 'text' | 'password' | 'number';
+  required: boolean;
+  placeholder?: string;
+  helpText?: string;
+}
+
+interface ProviderDef {
+  id: string;
+  name: string;
+  slot: string;
+  fields: FieldDef[];
 }
 
 /* ── Helpers ── */
@@ -31,8 +59,100 @@ const relativeTime = (iso: string) => {
   return Math.floor(s / 3600) + 'h ago';
 };
 
+/* ── SlotConfig — renders provider dropdown + config fields for one slot ── */
+function SlotConfig({
+  slot: _slot,
+  slotLabel,
+  providers,
+  selectedProvider,
+  providerSettings,
+  testResult,
+  testingProvider,
+  onSelectProvider,
+  onFieldChange,
+  onTest,
+}: {
+  slot: string;
+  slotLabel: string;
+  providers: ProviderDef[];
+  selectedProvider: string;
+  providerSettings: Record<string, any>;
+  testResult: { ok: boolean; message: string } | null;
+  testingProvider: boolean;
+  onSelectProvider: (providerId: string) => void;
+  onFieldChange: (key: string, value: string) => void;
+  onTest: () => void;
+}) {
+  const activeDef = providers.find(p => p.id === selectedProvider);
+  const hasFields = activeDef && activeDef.fields.length > 0;
+
+  return (
+    <div className="space-y-3">
+      <Label className="text-xs text-muted-foreground uppercase">{slotLabel}</Label>
+      <Select value={selectedProvider} onValueChange={onSelectProvider}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="Auto-detect" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="auto">Auto-detect</SelectItem>
+          {providers.map(p => (
+            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {hasFields && (
+        <div className="rounded-lg bg-white/[0.02] p-4 space-y-3" style={{ border: `1px solid rgba(63, 63, 70, 0.2)` }}>
+          {activeDef.fields.map(field => (
+            <div key={field.key}>
+              <Label className="text-xs text-muted-foreground">
+                {field.label}
+                {field.required && <span style={{ color: palette.accent }}> *</span>}
+              </Label>
+              <Input
+                className="mt-1"
+                type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
+                placeholder={field.placeholder}
+                value={providerSettings[field.key] || ''}
+                onChange={e => onFieldChange(field.key, e.target.value)}
+              />
+              {field.helpText && (
+                <p className="text-[11px] text-muted-foreground/70 mt-1">{field.helpText}</p>
+              )}
+            </div>
+          ))}
+
+          <div className="flex items-center gap-3 pt-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="rounded-lg"
+              disabled={testingProvider}
+              onClick={onTest}
+            >
+              {testingProvider ? 'Testing...' : 'Test Connection'}
+            </Button>
+            {testResult && (
+              <span
+                className="text-xs font-medium px-2 py-1 rounded"
+                style={{
+                  background: testResult.ok ? status.success.bg : status.error.bg,
+                  color: testResult.ok ? status.success.color : status.error.color,
+                  border: `1px solid ${testResult.ok ? status.success.border : status.error.border}`,
+                }}
+              >
+                {testResult.ok ? 'Connected' : testResult.message}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Component ── */
-export function SettingsTab({ auth, notify }: Props) {
+export function SettingsTab({ auth, notify, onRefresh }: Props) {
   // Account
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -45,6 +165,13 @@ export function SettingsTab({ auth, notify }: Props) {
   const [testResult, setTestResult] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Integrations
+  const [registry, setRegistry] = useState<{ slots: string[]; slotLabels: Record<string, string>; providers: ProviderDef[] } | null>(null);
+  const [providerConfig, setProviderConfig] = useState<any>({});
+  const [providerTestResults, setProviderTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const [testingSlot, setTestingSlot] = useState<string | null>(null);
+  const [savingProviders, setSavingProviders] = useState(false);
 
   // Connection Status
   const [syncStatus, setSyncStatus] = useState<any>(null);
@@ -68,7 +195,92 @@ export function SettingsTab({ auth, notify }: Props) {
     if (auth.isCloudMode) {
       fetchConnectionData();
     }
+    // Fetch provider registry and current config
+    Promise.all([fetchProviderRegistry(), fetchProviderConfig()])
+      .then(([reg, config]) => {
+        setRegistry(reg);
+        setProviderConfig(config || {});
+      })
+      .catch(e => console.error('Failed to load provider config', e));
   }, []);
+
+  // Get selected provider for a slot from config
+  const getSelectedProvider = (slot: string): string => {
+    return providerConfig?.providers?.[slot] || 'auto';
+  };
+
+  // Get provider-specific settings (e.g. todoist api_key)
+  const getProviderSettings = (providerId: string): Record<string, any> => {
+    return providerConfig?.[providerId] || {};
+  };
+
+  const handleSelectProvider = (slot: string, providerId: string) => {
+    setProviderConfig((prev: any) => ({
+      ...prev,
+      providers: {
+        ...(prev?.providers || {}),
+        [slot]: providerId === 'auto' ? undefined : providerId,
+      },
+    }));
+    // Clear test result for this slot
+    setProviderTestResults(prev => {
+      const next = { ...prev };
+      delete next[slot];
+      return next;
+    });
+  };
+
+  const handleFieldChange = (providerId: string, key: string, value: string) => {
+    setProviderConfig((prev: any) => ({
+      ...prev,
+      [providerId]: {
+        ...(prev?.[providerId] || {}),
+        [key]: value,
+      },
+    }));
+  };
+
+  const handleTestProvider = async (slot: string) => {
+    const providerId = getSelectedProvider(slot);
+    if (!providerId || providerId === 'auto') return;
+    setTestingSlot(slot);
+    try {
+      const result = await testProviderConnection(providerId, getProviderSettings(providerId));
+      setProviderTestResults(prev => ({
+        ...prev,
+        [slot]: { ok: result.ok, message: result.error || result.message || 'Connected' },
+      }));
+    } catch (e: any) {
+      setProviderTestResults(prev => ({
+        ...prev,
+        [slot]: { ok: false, message: e.message || 'Test failed' },
+      }));
+    }
+    setTestingSlot(null);
+  };
+
+  const handleSaveProviders = async () => {
+    setSavingProviders(true);
+    try {
+      // Clean up: remove undefined provider entries
+      const cleanConfig = { ...providerConfig };
+      if (cleanConfig.providers) {
+        for (const [k, v] of Object.entries(cleanConfig.providers)) {
+          if (!v) delete cleanConfig.providers[k];
+        }
+      }
+      const result = await saveProviderConfig(cleanConfig);
+      if (result.ok) {
+        notify('Providers saved and reloaded');
+        onRefresh?.();
+      } else {
+        notify('Failed to save: ' + (result.error || 'unknown error'));
+      }
+    } catch {
+      notify('Failed to save provider config');
+    }
+    setSavingProviders(false);
+  };
 
   const handleChangePassword = async () => {
     if (newPassword.length < 6) {
@@ -239,7 +451,45 @@ export function SettingsTab({ auth, notify }: Props) {
         </div>
       </div>
 
-      {/* ── Section 2: Workspace (cloud mode only) ── */}
+      {/* ── Section 2: Integrations ── */}
+      {registry && (
+        <div className="glass-card rounded-xl p-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <span className="w-1 h-5 rounded-full" style={{ background: palette.accent }} />
+            Integrations
+          </h2>
+
+          <div className="space-y-6">
+            {(registry.slots || []).map(slot => (
+              <SlotConfig
+                key={slot}
+                slot={slot}
+                slotLabel={registry.slotLabels?.[slot] || slot}
+                providers={registry.providers.filter(p => p.slot === slot)}
+                selectedProvider={getSelectedProvider(slot)}
+                providerSettings={getProviderSettings(getSelectedProvider(slot))}
+                testResult={providerTestResults[slot] || null}
+                testingProvider={testingSlot === slot}
+                onSelectProvider={(id) => handleSelectProvider(slot, id)}
+                onFieldChange={(key, val) => handleFieldChange(getSelectedProvider(slot), key, val)}
+                onTest={() => handleTestProvider(slot)}
+              />
+            ))}
+
+            <Button
+              size="sm"
+              className="rounded-lg font-semibold"
+              style={{ background: palette.accent, color: palette.white }}
+              disabled={savingProviders}
+              onClick={handleSaveProviders}
+            >
+              {savingProviders ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Section 3: Workspace (cloud mode only) ── */}
       {auth.isCloudMode && (
         <div className="glass-card rounded-xl p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -316,7 +566,7 @@ export function SettingsTab({ auth, notify }: Props) {
         </div>
       )}
 
-      {/* ── Section 3: Connection Status (cloud mode only) ── */}
+      {/* ── Section 4: Connection Status (cloud mode only) ── */}
       {auth.isCloudMode && (
         <div className="glass-card rounded-xl p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -367,7 +617,7 @@ export function SettingsTab({ auth, notify }: Props) {
         </div>
       )}
 
-      {/* ── Section 4: Danger Zone ── */}
+      {/* ── Section 5: Danger Zone ── */}
       <div
         className="glass-card rounded-xl p-6"
         style={{ border: `1px solid ${status.error.border}` }}

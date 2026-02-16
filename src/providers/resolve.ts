@@ -87,6 +87,7 @@ function fileWriter(filePath: string): (data: any[]) => Promise<void> {
 export function resolveProviders(opts: {
   dataDir: string;
   configPath?: string;
+  configOverride?: ProviderConfig | null;
   cloudReadData?: (dataType: string) => Promise<any>;
   cloudWriteData?: (dataType: string, data: any) => Promise<void>;
   cloudReadModifyWrite?: (
@@ -95,23 +96,25 @@ export function resolveProviders(opts: {
   ) => Promise<{ items: any[] | null; error?: string }>;
   readPatterns?: () => Promise<any>;
 }): ResolvedProviders {
-  const { dataDir, cloudReadData, cloudWriteData, readPatterns } = opts;
+  const { dataDir, cloudReadData, cloudWriteData, readPatterns, configOverride } = opts;
   const isCloud = typeof cloudReadData === 'function';
 
   // ---- 1. Load config ----
 
-  const configPath =
-    opts.configPath ?? path.join(dataDir, '..', 'openbrain.yaml');
+  let config: ProviderConfig | null = configOverride ?? null;
 
-  let config: ProviderConfig | null = null;
-  try {
-    if (fs.existsSync(configPath)) {
-      const raw = fs.readFileSync(configPath, 'utf-8');
-      const parsed = yaml.load(raw) as ProviderConfig | null;
-      config = parsed ? (expandEnv(parsed) as ProviderConfig) : null;
+  if (!config) {
+    const configPath =
+      opts.configPath ?? path.join(dataDir, '..', 'openbrain.yaml');
+    try {
+      if (fs.existsSync(configPath)) {
+        const raw = fs.readFileSync(configPath, 'utf-8');
+        const parsed = yaml.load(raw) as ProviderConfig | null;
+        config = parsed ? (expandEnv(parsed) as ProviderConfig) : null;
+      }
+    } catch (err) {
+      console.warn('[resolve] Failed to read openbrain.yaml:', err);
     }
-  } catch (err) {
-    console.warn('[resolve] Failed to read openbrain.yaml:', err);
   }
 
   // ---- 2. Helper: build read/write for a CLI data file ----

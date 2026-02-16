@@ -205,6 +205,19 @@ export const pauseWorkflowRun = (id: string): Promise<any> =>
 export const cancelWorkflowRun = (id: string): Promise<any> =>
   apiFetch(`/api/wf/runs/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json);
 
+// Provider configuration endpoints
+export const fetchProviderRegistry = (): Promise<any> =>
+  apiFetch('/api/providers').then(json);
+
+export const fetchProviderConfig = (): Promise<any> =>
+  apiFetch('/api/provider-config').then(json);
+
+export const saveProviderConfig = (config: any): Promise<any> =>
+  apiFetch('/api/provider-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) }).then(json);
+
+export const testProviderConnection = (providerId: string, config: any): Promise<any> =>
+  apiFetch('/api/provider-config/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ providerId, config }) }).then(json);
+
 // Settings page endpoints
 export const fetchSyncStatus = (): Promise<any> =>
   apiFetch('/api/sync/status').then(json);

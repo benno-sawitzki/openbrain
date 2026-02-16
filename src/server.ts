@@ -13,6 +13,8 @@ import { WorkflowEngine } from './workflows/engine';
 import { createWorkflowRouter } from './workflows/routes';
 import { resolveProviders, getModulesResponse } from './providers/resolve';
 import type { ResolvedProviders } from './providers/resolve';
+import { PROVIDER_REGISTRY, SLOTS, SLOT_LABELS, getProvidersForSlot } from './providers/registry';
+import type { Slot } from './providers/registry';
 
 // Load .env file if present (no dependency needed)
 const envPath = path.join(__dirname, '..', '.env');
@@ -147,6 +149,11 @@ async function writeSyncedData(req: express.Request, dataType: string, payload: 
   if (!IS_CLOUD || !supabase) return false;
   const user = await resolveUser(req);
   if (!user) return false;
+  const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown';
+  console.log(`[WRITE] writeSyncedData(${dataType}) from: ${caller}`);
+  if (dataType === 'leads' && Array.isArray(payload)) {
+    for (const l of payload) console.log(`[WRITE]   ${l.name}: stage=${l.stage}`);
+  }
   const { error } = await supabase.from('workspace_data').upsert({
     workspace_id: user.workspaceId,
     data_type: dataType,
@@ -178,6 +185,10 @@ async function cloudReadModifyWrite(
     const result = modify(items);
     if (result === null) return { items: null, error: 'not found' };
 
+    console.log(`[WRITE] cloudRMW(${dataType}) writing ${Array.isArray(result) ? result.length : '?'} items`);
+    if (dataType === 'leads' && Array.isArray(result)) {
+      for (const l of result) console.log(`[WRITE]   ${l.name}: stage=${l.stage}`);
+    }
     const { error } = await supabase.from('workspace_data').upsert({
       workspace_id: user.workspaceId,
       data_type: dataType,
@@ -242,18 +253,23 @@ const p = (...parts: string[]) => path.join(DATA_DIR, ...parts);
 // or auto-detects CLI tools. In cloud mode, providers use Supabase read/write functions.
 // NOTE: Cloud mode providers are request-scoped (need auth), so we resolve per-request.
 // Local mode providers are resolved once at startup.
-const localProviders: ResolvedProviders = IS_CLOUD
+let localProviders: ResolvedProviders = IS_CLOUD
   ? { tasks: null, crm: null, content: null } // initialized per-request in cloud mode
   : resolveProviders({ dataDir: DATA_DIR });
 
 // For cloud mode, resolve providers using request-scoped read/write
-function getProviders(req?: express.Request): ResolvedProviders {
+async function getProviders(req?: express.Request): Promise<ResolvedProviders> {
   if (!IS_CLOUD) return localProviders;
-  // In cloud mode, resolve with cloud data functions
-  // We use a simple approach: providers always use readSyncedData/writeSyncedData
-  // which handle auth internally
+
+  // In cloud mode, read saved provider config from workspace_data
+  let configOverride: any = null;
+  if (req) {
+    configOverride = await readSyncedData(req, 'provider_config') || null;
+  }
+
   return resolveProviders({
     dataDir: DATA_DIR,
+    configOverride,
     cloudReadData: async (dataType: string) => {
       if (!req) return [];
       return await readSyncedData(req, dataType) || [];
@@ -266,28 +282,139 @@ function getProviders(req?: express.Request): ResolvedProviders {
 }
 
 // Module detection — which providers are active for each slot
-app.get('/api/modules', (_req, res) => {
-  const providers = getProviders(_req);
+app.get('/api/modules', async (_req, res) => {
+  const providers = await getProviders(_req);
   res.json(getModulesResponse(providers));
+});
+
+// ── Provider configuration endpoints ─────────────────────────────────
+
+// Returns the registry of available providers and their config fields
+app.get('/api/providers', (_req, res) => {
+  res.json({
+    slots: SLOTS,
+    slotLabels: SLOT_LABELS,
+    providers: PROVIDER_REGISTRY,
+  });
+});
+
+// Returns current provider config (which provider is selected per slot + their settings)
+app.get('/api/provider-config', async (req, res) => {
+  if (IS_CLOUD) {
+    const data = await readSyncedData(req, 'provider_config');
+    return res.json(data || { providers: {} });
+  }
+  // Local mode: read from openbrain.yaml
+  const configPath = path.join(DATA_DIR, '..', 'openbrain.yaml');
+  try {
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      const parsed = yaml.load(raw) as any;
+      res.json(parsed || { providers: {} });
+    } else {
+      res.json({ providers: {} });
+    }
+  } catch {
+    res.json({ providers: {} });
+  }
+});
+
+// Saves provider config and hot-reloads providers
+app.post('/api/provider-config', async (req, res) => {
+  const config = req.body;
+  if (!config || typeof config !== 'object') {
+    return res.status(400).json({ error: 'config object required' });
+  }
+
+  if (IS_CLOUD) {
+    const ok = await writeSyncedData(req, 'provider_config', config);
+    if (!ok) return res.status(500).json({ error: 'failed to save config' });
+    return res.json({ ok: true });
+  }
+
+  // Local mode: write openbrain.yaml, then hot-reload providers
+  const configPath = path.join(DATA_DIR, '..', 'openbrain.yaml');
+  try {
+    const yamlStr = yaml.dump(config, { lineWidth: 120 });
+    fs.writeFileSync(configPath, yamlStr);
+    // Hot-reload: re-resolve providers with new config
+    localProviders = resolveProviders({ dataDir: DATA_DIR });
+    console.log('[provider-config] Saved and hot-reloaded providers');
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Test a provider connection by instantiating it and calling list({limit:1})
+app.post('/api/provider-config/test', async (req, res) => {
+  const { providerId, config: providerConfig } = req.body;
+  if (!providerId) return res.status(400).json({ error: 'providerId required' });
+
+  const def = PROVIDER_REGISTRY.find(p => p.id === providerId);
+  if (!def) return res.status(400).json({ error: `unknown provider: ${providerId}` });
+
+  try {
+    let provider: any = null;
+    switch (providerId) {
+      case 'todoist': {
+        const { TodoistProvider } = await import('./providers/todoist');
+        if (!providerConfig?.api_key) return res.json({ ok: false, error: 'API key required' });
+        const projectIds = providerConfig.project_ids
+          ? String(providerConfig.project_ids).split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n))
+          : undefined;
+        provider = new TodoistProvider({
+          api_key: providerConfig.api_key,
+          project_ids: projectIds,
+          max_items: providerConfig.max_items ? parseInt(providerConfig.max_items, 10) : undefined,
+        });
+        break;
+      }
+      case 'pipedrive': {
+        const { PipedriveProvider } = await import('./providers/pipedrive');
+        if (!providerConfig?.api_key) return res.json({ ok: false, error: 'API key required' });
+        provider = new PipedriveProvider({
+          api_key: providerConfig.api_key,
+          domain: providerConfig.domain || undefined,
+          pipeline_id: providerConfig.pipeline_id ? parseInt(providerConfig.pipeline_id, 10) : undefined,
+        });
+        break;
+      }
+      case 'taskpipe':
+      case 'leadpipe':
+      case 'contentq':
+        // CLI tools don't need connection testing
+        return res.json({ ok: true, message: 'CLI tool — no connection needed' });
+      default:
+        return res.json({ ok: false, error: `No test available for ${providerId}` });
+    }
+
+    if (provider) {
+      await provider.list({ limit: 1 });
+      res.json({ ok: true });
+    }
+  } catch (e: any) {
+    res.json({ ok: false, error: e.message });
+  }
 });
 
 // API — provider-based data endpoints
 app.get('/api/tasks', async (_req, res) => {
-  const { tasks } = getProviders(_req);
+  const { tasks } = await getProviders(_req);
   if (!tasks) return res.json([]);
   try { res.json(await tasks.list()); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/leads', async (_req, res) => {
-  const { crm } = getProviders(_req);
+  const { crm } = await getProviders(_req);
   if (!crm) return res.json([]);
   try { res.json(await crm.list()); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/content', async (_req, res) => {
-  const { content } = getProviders(_req);
+  const { content } = await getProviders(_req);
   if (!content) return res.json([]);
   try { res.json(await content.list()); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -302,7 +429,7 @@ app.get('/api/activity', async (_req, res) => {
 
 app.get('/api/stats', async (_req, res) => {
   if (IS_CLOUD) return res.json(await readSyncedData(_req, 'stats') || { doneToday: 0, pipelineValue: 0, drafts: 0, streak: 0, stakeRisk: 0, overdueStakes: 0 });
-  const providers = getProviders(_req);
+  const providers = await getProviders(_req);
   try {
     const [taskStats, crmStats, contentStats] = await Promise.all([
       providers.tasks?.stats() ?? { total: 0, doneToday: 0, overdue: 0, streak: 0, stakeRisk: 0, overdueStakes: 0 },
@@ -407,7 +534,7 @@ app.use('/api/wf', createWorkflowRouter(getWorkflowContext, authenticateRunToken
 app.post('/api/tasks', async (req, res) => {
   const { content } = req.body;
   if (!content) return res.status(400).json({ error: 'content required' });
-  const { tasks } = getProviders(req);
+  const { tasks } = await getProviders(req);
   if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
   try {
     const task = await tasks.create(req.body);
@@ -419,7 +546,7 @@ app.post('/api/tasks', async (req, res) => {
 app.post('/api/leads', async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
-  const { crm } = getProviders(req);
+  const { crm } = await getProviders(req);
   if (!crm) return res.status(400).json({ error: 'no CRM provider' });
   try {
     const lead = await crm.create(req.body);
@@ -431,7 +558,7 @@ app.post('/api/leads', async (req, res) => {
 app.post('/api/content', async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'text required' });
-  const { content } = getProviders(req);
+  const { content } = await getProviders(req);
   if (!content) return res.status(400).json({ error: 'no content provider' });
   try {
     const item = await content.create(req.body);
@@ -442,7 +569,7 @@ app.post('/api/content', async (req, res) => {
 // Update task
 app.put('/api/tasks/:id', async (req, res) => {
   const { id } = req.params;
-  const { tasks } = getProviders(req);
+  const { tasks } = await getProviders(req);
   if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
   try {
     const task = await tasks.update(id, req.body);
@@ -456,7 +583,7 @@ app.put('/api/tasks/:id', async (req, res) => {
 // Update lead
 app.put('/api/leads/:id', async (req, res) => {
   const { id } = req.params;
-  const { crm } = getProviders(req);
+  const { crm } = await getProviders(req);
   if (!crm) return res.status(400).json({ error: 'no CRM provider' });
   try {
     const lead = await crm.update(id, req.body);
@@ -470,7 +597,7 @@ app.put('/api/leads/:id', async (req, res) => {
 // Update content
 app.put('/api/content/:id', async (req, res) => {
   const { id } = req.params;
-  const { content } = getProviders(req);
+  const { content } = await getProviders(req);
   if (!content) return res.status(400).json({ error: 'no content provider' });
   try {
     const item = await content.update(id, req.body);
@@ -506,7 +633,7 @@ app.post('/api/tasks/:id/move', async (req, res) => {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
     return;
   }
-  const { tasks } = getProviders(req);
+  const { tasks } = await getProviders(req);
   if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
   try {
     const task = await tasks.move(id, status);
@@ -538,7 +665,7 @@ app.delete('/api/tasks/:id', async (req, res) => {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
     return;
   }
-  const { tasks } = getProviders(req);
+  const { tasks } = await getProviders(req);
   if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
   try {
     await tasks.delete(id);
@@ -593,7 +720,7 @@ app.post('/api/tasks/reorder', async (req, res) => {
     return;
   }
 
-  const { tasks } = getProviders(req);
+  const { tasks } = await getProviders(req);
   if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
   try {
     if (tasks.reorder) {
@@ -629,7 +756,7 @@ app.post('/api/leads/:id/move', async (req, res) => {
     return;
   }
 
-  const { crm } = getProviders(req);
+  const { crm } = await getProviders(req);
   if (!crm) return res.status(400).json({ error: 'no CRM provider' });
   try {
     const lead = await crm.move(id, stage);
@@ -1354,8 +1481,10 @@ const SYNC_SECRET = process.env.SYNC_SECRET || '';
 // Cloud side: receive sync data from local instance
 if (IS_CLOUD && SYNC_SECRET) {
   app.post('/api/sync', async (req, res) => {
+    console.log(`[WRITE] SYNC received from ${req.ip}`);
     const secret = req.headers['x-sync-secret'];
     if (!secret || secret !== SYNC_SECRET) {
+      console.log(`[WRITE] SYNC rejected — bad secret`);
       return res.status(401).json({ error: 'invalid sync secret' });
     }
 
@@ -1426,6 +1555,7 @@ if (IS_CLOUD && SYNC_SECRET) {
 
         for (const dt of replaceTypes) {
           if (req.body[dt] !== undefined) {
+            console.log(`[WRITE] sync replace: ${dt}`);
             const { error: writeErr } = await supabase.from('workspace_data').upsert({
               workspace_id: workspaceId,
               data_type: dt,
