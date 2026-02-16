@@ -40,28 +40,6 @@ const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const IS_CLOUD = !!(SUPABASE_URL && SUPABASE_SERVICE_KEY);
 
-// Intercept ALL fetch calls to Supabase to find ghost writer
-if (IS_CLOUD && SUPABASE_URL) {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async function patchedFetch(input: any, init?: any): Promise<Response> {
-    const url = typeof input === 'string' ? input : input?.url || '';
-    const method = init?.method || 'GET';
-    if (url.includes('supabase') && url.includes('workspace_data') && method !== 'GET') {
-      const stack = new Error().stack?.split('\n').slice(1, 8).map(s => s.trim()).join('\n  ') || 'unknown';
-      console.log(`[GHOST-HUNTER] ${method} ${url.slice(0, 120)}\n  ${stack}`);
-      if (init?.body && typeof init.body === 'string' && init.body.includes('"leads"')) {
-        try {
-          const parsed = JSON.parse(init.body);
-          if (parsed.data_type === 'leads' || (Array.isArray(parsed) && parsed[0]?.data_type === 'leads')) {
-            console.log(`[GHOST-HUNTER] LEADS DATA IN BODY!`);
-          }
-        } catch {}
-      }
-    }
-    return originalFetch(input, init);
-  } as typeof fetch;
-}
-
 const supabase = IS_CLOUD ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY) : null;
 
 // Track IDs deleted via cloud UI so local sync doesn't re-add them
