@@ -100,21 +100,46 @@ export default function App() {
       setState(data);
     } catch (e) {
       console.error('Failed to fetch data', e);
-    } finally {
-      setInitialLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (auth.isCloudMode && !auth.user) return;
     if (auth.isCloudMode && !auth.workspace?.gateway_url) return;
-    // Fetch modules first, then data
-    fetchModules().then(mods => {
-      setModules(mods);
-      return refresh(mods);
-    }).catch(() => refresh());
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout>;
+
+    // Initial load with retry — gateway may need time to warm up
+    const initialLoad = async (attempt = 0) => {
+      try {
+        const mods = await fetchModules().catch(() => ({} as Modules));
+        if (cancelled) return;
+        setModules(mods);
+        const data = await fetchAll(mods);
+        if (cancelled) return;
+        setState(data);
+
+        // If data looks empty but modules say there should be data, retry
+        const hasModules = slotActive(mods, 'tasks') || slotActive(mods, 'crm') || slotActive(mods, 'content');
+        const hasData = data.tasks.length > 0 || data.leads.length > 0 || data.content.length > 0;
+        if (hasModules && !hasData && attempt < 4) {
+          retryTimer = setTimeout(() => initialLoad(attempt + 1), 2000);
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to fetch data', e);
+        if (!cancelled && attempt < 4) {
+          retryTimer = setTimeout(() => initialLoad(attempt + 1), 2000);
+          return;
+        }
+      }
+      if (!cancelled) setInitialLoading(false);
+    };
+
+    initialLoad();
     const id = setInterval(() => refresh(), 30000);
-    return () => clearInterval(id);
+    return () => { cancelled = true; clearInterval(id); clearTimeout(retryTimer); };
   }, [refresh, auth.user, auth.workspace?.gateway_url, auth.isCloudMode]);
 
   const notify = (msg: string) => toast(msg);
