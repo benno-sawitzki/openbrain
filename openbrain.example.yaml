@@ -17,13 +17,13 @@ providers:
 #   project_ids: [123456, 789012]     # optional: limit to specific projects
 #   max_items: 20                     # max tasks to show (default: 50)
 
-# --- Pipedrive (CRM slot) — coming soon ---
+# --- Pipedrive (CRM slot) ---
 # pipedrive:
 #   api_key: ${PIPEDRIVE_API_KEY}
-#   domain: your-company
-#   pipeline_id: 1
-#   stage_mapping:
-#     1: cold
+#   domain: your-company              # your Pipedrive subdomain
+#   pipeline_id: 1                    # optional: limit to one pipeline
+#   stage_mapping:                    # optional: map stage IDs → OB names
+#     1: cold                         # (auto-fetched from API if omitted)
 #     2: warm
 #     3: hot
 #     4: proposal

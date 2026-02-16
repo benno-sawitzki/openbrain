@@ -12,6 +12,7 @@ import { TaskpipeProvider } from './taskpipe';
 import { LeadpipeProvider } from './leadpipe';
 import { ContentqProvider } from './contentq';
 import { TodoistProvider } from './todoist';
+import { PipedriveProvider } from './pipedrive';
 import { CachedProvider } from './cache';
 
 // ---------------------------------------------------------------------------
@@ -197,7 +198,22 @@ export function resolveProviders(opts: {
         crm = new LeadpipeProvider(rw);
         break;
       }
-      case 'pipedrive':
+      case 'pipedrive': {
+        if (config?.pipedrive?.api_key) {
+          const inner = new PipedriveProvider(
+            config.pipedrive as {
+              api_key: string;
+              domain?: string;
+              pipeline_id?: number;
+              stage_mapping?: Record<number, string>;
+            },
+          );
+          crm = new CachedProvider<CrmProvider>(inner, 300_000) as unknown as CrmProvider;
+        } else {
+          console.warn('[resolve] Pipedrive configured but no api_key provided');
+        }
+        break;
+      }
       case 'hubspot':
         console.warn(`[resolve] ${configuredCrm} provider not yet implemented`);
         break;
