@@ -541,6 +541,19 @@ function normalizeAgentId(id: string): string {
 // Agent config from openclaw.json — returns full agent list with defaults
 app.get('/api/agents/config', async (_req, res) => {
   try {
+    // Cloud mode: read from synced data in Supabase
+    if (IS_CLOUD) {
+      const synced = await readSyncedData(_req, 'agents_config');
+      if (synced?.agents) {
+        // Strip _files from response (those are for the /files endpoint)
+        const agents = synced.agents.map((a: any) => {
+          const { _files, _workspace, ...rest } = a;
+          return rest;
+        });
+        return res.json({ agents, defaults: synced.defaults || {} });
+      }
+      return res.json({ agents: [], defaults: {} });
+    }
     const config = await readOpenclawConfig();
     if (!config?.agents) return res.json({ agents: [], defaults: {} });
     const defaults = config.agents.defaults || {};
@@ -560,7 +573,7 @@ app.get('/api/agents/config', async (_req, res) => {
     }));
     res.json({ agents, defaults: safeDefaults });
   } catch {
-    // SSH/local read failed (e.g. cloud mode) — return empty gracefully
+    // SSH/local read failed — return empty gracefully
     res.json({ agents: [], defaults: {} });
   }
 });
@@ -569,6 +582,13 @@ app.get('/api/agents/config', async (_req, res) => {
 app.get('/api/agents/:agentId/files', async (req, res) => {
   try {
     const agentId = req.params.agentId;
+    // Cloud mode: read from synced agents_config data
+    if (IS_CLOUD) {
+      const synced = await readSyncedData(req, 'agents_config');
+      const agent = (synced?.agents || []).find((a: any) => a.id === agentId || a._configId === agentId);
+      if (!agent) return res.status(404).json({ error: 'Agent not found' });
+      return res.json({ files: agent._files || {}, workspace: agent._workspace || null, agentDir: agent.agentDir || null });
+    }
     const config = await readOpenclawConfig();
     // Match by normalized ID
     const agent = (config?.agents?.list || []).find((a: any) =>
@@ -589,7 +609,7 @@ app.get('/api/agents/:agentId/files', async (req, res) => {
     }
     res.json({ files, workspace, agentDir: agent.agentDir });
   } catch {
-    // SSH/local read failed (e.g. cloud mode)
+    // SSH/local read failed
     res.json({ files: {}, workspace: null, agentDir: null });
   }
 });
@@ -1592,7 +1612,7 @@ if (IS_CLOUD && SYNC_SECRET) {
       // Editable types: only ADD new items from local (never overwrite existing cloud items)
       const editableTypes = ['tasks', 'leads', 'content'] as const;
       // Read-only types: safe to overwrite (these are display-only in cloud UI)
-      const replaceTypes = ['activity', 'stats', 'config', 'inbox'] as const;
+      const replaceTypes = ['activity', 'stats', 'config', 'inbox', 'agents_config'] as const;
       let synced = 0;
 
       await withWriteLock(`sync:${workspaceId}`, async () => {
@@ -1719,6 +1739,40 @@ if (!IS_CLOUD && SYNC_URL && SYNC_SECRET && SYNC_WORKSPACE_ID) {
         const alt = readJSON(p('stats.json'));
         if (alt) payload.stats = alt;
       }
+
+      // Include agent configs and workspace files for cloud
+      try {
+        const openclawPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+        const openclawConfig = JSON.parse(fs.readFileSync(openclawPath, 'utf-8'));
+        if (openclawConfig?.agents) {
+          const defaults = openclawConfig.agents.defaults || {};
+          const safeDefaults = {
+            model: defaults.model,
+            heartbeat: defaults.heartbeat,
+            maxConcurrent: defaults.maxConcurrent,
+            contextPruning: defaults.contextPruning,
+            compaction: defaults.compaction,
+            typingMode: defaults.typingMode,
+          };
+          const mdFiles = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'AGENTS.md', 'HEARTBEAT.md'];
+          const agents = (openclawConfig.agents.list || []).map((a: any) => {
+            const agent = { ...a, _configId: a.id, id: normalizeAgentId(a.id) };
+            // Strip sensitive fields
+            delete agent.apiKey; delete agent.token; delete agent.secret;
+            // Read workspace markdown files
+            if (a.workspace) {
+              const files: Record<string, string | null> = {};
+              for (const name of mdFiles) {
+                try { files[name] = fs.readFileSync(path.join(a.workspace, name), 'utf-8').trim() || null; } catch { files[name] = null; }
+              }
+              agent._files = files;
+              agent._workspace = a.workspace;
+            }
+            return agent;
+          });
+          payload['agents_config'] = { agents, defaults: safeDefaults };
+        }
+      } catch {}
 
       if (Object.keys(payload).length === 0) return;
 
