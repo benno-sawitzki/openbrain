@@ -8,3 +8,7 @@ public/assets/
 assets/
 supabase/.temp/
 .vercel
+.DS_Store
+.taskpipe/
+.leadpipe/
+.contentq/
