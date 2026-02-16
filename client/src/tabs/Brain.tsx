@@ -276,7 +276,7 @@ export function BrainTab() {
                 Integrations
                 <span className="font-normal text-muted-foreground/60 text-xs">{nonSkillConnectionCount}</span>
                 <span className="px-2 py-0.5 rounded-md text-[9px] font-medium"
-                  style={{ background: accentAlpha(0.08), color: palette.accent }}>{activeNonSkillConns} active</span>
+                  style={{ background: status.success.bg, color: status.success.color }}>{activeNonSkillConns} active</span>
               </h3>
               <span className="text-muted-foreground/40 text-xs transition-transform duration-200"
                 style={{ transform: integrationsOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>{'\u25B6'}</span>
