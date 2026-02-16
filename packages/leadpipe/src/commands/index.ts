@@ -1,0 +1,46 @@
+import { Command } from 'commander';
+import { initCmd } from './init.js';
+import { addCmd } from './add.js';
+import { listCmd } from './list.js';
+import { showCmd } from './show.js';
+import { editCmd } from './edit.js';
+import { deleteCmd } from './delete.js';
+import { searchCmd } from './search.js';
+import { moveCmd } from './move.js';
+import { touchCmd } from './touch.js';
+import { followUpCmd } from './followup.js';
+import { dueCmd } from './due.js';
+import { staleCmd } from './stale.js';
+import { scoreCmd } from './score.js';
+import { importCmd } from './import.js';
+import { exportCmd } from './export.js';
+import { templateCmd } from './template.js';
+import { statsCmd } from './stats.js';
+import { funnelCmd } from './funnel.js';
+import { velocityCmd } from './velocity.js';
+import { revenueCmd } from './revenue.js';
+import { contextCmd } from './context.js';
+
+export function registerCommands(program: Command): void {
+  initCmd(program);
+  addCmd(program);
+  listCmd(program);
+  showCmd(program);
+  editCmd(program);
+  deleteCmd(program);
+  searchCmd(program);
+  moveCmd(program);
+  touchCmd(program);
+  followUpCmd(program);
+  dueCmd(program);
+  staleCmd(program);
+  scoreCmd(program);
+  importCmd(program);
+  exportCmd(program);
+  templateCmd(program);
+  statsCmd(program);
+  funnelCmd(program);
+  velocityCmd(program);
+  revenueCmd(program);
+  contextCmd(program);
+}

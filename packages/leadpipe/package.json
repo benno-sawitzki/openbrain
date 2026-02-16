@@ -1,0 +1,32 @@
+{
+  "name": "leadpipe",
+  "version": "0.1.0",
+  "description": "CLI-first CRM pipeline. The Unix of Marketing.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "leadpipe": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["crm", "cli", "pipeline", "sales", "leads"],
+  "author": "Benno Sawitzki",
+  "license": "MIT",
+  "dependencies": {
+    "@openbrain/cli-client": "file:../cli-client",
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "csv-parse": "^5.6.0",
+    "csv-stringify": "^6.5.2",
+    "js-yaml": "^4.1.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.4",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.7.3"
+  }
+}
