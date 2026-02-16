@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Toaster, toast } from 'sonner';
 import { fetchAll, fetchModules, slotActive } from './api';
 import type { Modules } from './api';
@@ -90,21 +90,24 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
 
+  // Use a ref so refresh() always reads current modules without depending on them
+  const modulesRef = useRef(modules);
+  modulesRef.current = modules;
+
   const refresh = useCallback(async (mods?: Modules) => {
     try {
-      const data = await fetchAll(mods ?? modules);
+      const data = await fetchAll(mods ?? modulesRef.current);
       setState(data);
     } catch (e) {
       console.error('Failed to fetch data', e);
     } finally {
       setInitialLoading(false);
     }
-  }, [modules]);
+  }, []);
 
   useEffect(() => {
     if (auth.isCloudMode && !auth.user) return;
     if (auth.isCloudMode && !auth.workspace?.gateway_url) return;
-    setInitialLoading(true);
     // Fetch modules first, then data
     fetchModules().then(mods => {
       setModules(mods);
