@@ -72,6 +72,25 @@ function mergeArrayData(localItems: any[], cloudItems: any[], deletedIds: Set<st
   return Array.from(merged.values());
 }
 
+// Per-workspace write lock to prevent concurrent read-modify-write races
+// (e.g., sync endpoint + cloud UI move endpoint interleaving)
+const writeLocks = new Map<string, Promise<void>>();
+
+async function withWriteLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  while (writeLocks.has(key)) {
+    await writeLocks.get(key);
+  }
+  let resolve: () => void;
+  const promise = new Promise<void>(r => { resolve = r; });
+  writeLocks.set(key, promise);
+  try {
+    return await fn();
+  } finally {
+    writeLocks.delete(key);
+    resolve!();
+  }
+}
+
 // Local mode: direct Gateway connection
 if (!IS_CLOUD) {
   initLocalGateway();
@@ -133,6 +152,38 @@ async function writeSyncedData(req: express.Request, dataType: string, payload: 
   }, { onConflict: 'workspace_id,data_type' });
   if (error) { console.error(`[writeSyncedData] ${dataType} FAILED:`, error.message); return false; }
   return true;
+}
+
+// Atomic read-modify-write for cloud data — acquires write lock to prevent sync races
+async function cloudReadModifyWrite(
+  req: express.Request,
+  dataType: string,
+  modify: (items: any[]) => any[] | null, // return null to abort
+): Promise<{ items: any[] | null; error?: string }> {
+  if (!IS_CLOUD || !supabase) return { items: null };
+  const user = await resolveUser(req);
+  if (!user) return { items: null, error: 'unauthorized' };
+
+  return withWriteLock(`sync:${user.workspaceId}`, async () => {
+    const { data } = await supabase
+      .from('workspace_data')
+      .select('data')
+      .eq('workspace_id', user.workspaceId)
+      .eq('data_type', dataType)
+      .single();
+    const items: any[] = data?.data || [];
+    const result = modify(items);
+    if (result === null) return { items: null, error: 'not found' };
+
+    const { error } = await supabase.from('workspace_data').upsert({
+      workspace_id: user.workspaceId,
+      data_type: dataType,
+      data: result,
+      synced_at: new Date().toISOString(),
+    }, { onConflict: 'workspace_id,data_type' });
+    if (error) return { items: null, error: error.message };
+    return { items: result };
+  });
 }
 
 // --- Workflows ---
@@ -482,29 +533,31 @@ app.post('/api/tasks/:id/move', async (req, res) => {
   if (!status) return res.status(400).json({ error: 'status required' });
 
   try {
-    let tasks: any[];
     if (IS_CLOUD) {
-      tasks = (await readSyncedData(req, 'tasks')) || [];
+      let movedTask: any = null;
+      const { error } = await cloudReadModifyWrite(req, 'tasks', (tasks) => {
+        const task = tasks.find((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
+        if (!task) return null;
+        task.status = status;
+        task.updatedAt = new Date().toISOString();
+        if (status === 'done') task.completedAt = new Date().toISOString();
+        movedTask = task;
+        return tasks;
+      });
+      if (error === 'not found') return res.status(404).json({ error: 'task not found' });
+      if (error) return res.status(500).json({ error });
+      res.json(movedTask);
     } else {
-      tasks = readJSON(p('.taskpipe', 'tasks.json')) || [];
-    }
-
-    const task = tasks.find((t: any) =>
-      id.length < 36 ? t.id.startsWith(id) : t.id === id
-    );
-    if (!task) return res.status(404).json({ error: 'task not found' });
-
-    task.status = status;
-    task.updatedAt = new Date().toISOString();
-    if (status === 'done') task.completedAt = new Date().toISOString();
-
-    if (IS_CLOUD) {
-      await writeSyncedData(req, 'tasks', tasks);
-    } else {
+      const tasks = readJSON(p('.taskpipe', 'tasks.json')) || [];
+      const task = tasks.find((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
+      if (!task) return res.status(404).json({ error: 'task not found' });
+      task.status = status;
+      task.updatedAt = new Date().toISOString();
+      if (status === 'done') task.completedAt = new Date().toISOString();
       const tasksPath = p('.taskpipe', 'tasks.json');
       fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
+      res.json(task);
     }
-    res.json(task);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -512,20 +565,27 @@ app.post('/api/tasks/:id/move', async (req, res) => {
 app.delete('/api/tasks/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const tasks = IS_CLOUD
-      ? ((await readSyncedData(req, 'tasks')) || [])
-      : (readJSON(p('.taskpipe', 'tasks.json')) || []);
-    const idx = tasks.findIndex((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
-    if (idx === -1) return res.status(404).json({ error: 'task not found' });
-    const removed = tasks.splice(idx, 1)[0];
     if (IS_CLOUD) {
+      let removedTask: any = null;
       const user = await resolveUser(req);
-      if (user) trackCloudDeletion(user.workspaceId, 'tasks', removed.id);
-      await writeSyncedData(req, 'tasks', tasks);
+      const { error } = await cloudReadModifyWrite(req, 'tasks', (tasks) => {
+        const idx = tasks.findIndex((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
+        if (idx === -1) return null;
+        removedTask = tasks.splice(idx, 1)[0];
+        if (user) trackCloudDeletion(user.workspaceId, 'tasks', removedTask.id);
+        return tasks;
+      });
+      if (error === 'not found') return res.status(404).json({ error: 'task not found' });
+      if (error) return res.status(500).json({ error });
+      res.json(removedTask);
     } else {
+      const tasks = readJSON(p('.taskpipe', 'tasks.json')) || [];
+      const idx = tasks.findIndex((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
+      if (idx === -1) return res.status(404).json({ error: 'task not found' });
+      const removed = tasks.splice(idx, 1)[0];
       fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(tasks, null, 2));
+      res.json(removed);
     }
-    res.json(removed);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -591,24 +651,28 @@ app.post('/api/leads/:id/move', async (req, res) => {
   if (!stage) return res.status(400).json({ error: 'stage required' });
 
   try {
-    const leads = IS_CLOUD
-      ? ((await readSyncedData(req, 'leads')) || [])
-      : (readJSON(p('.leadpipe', 'leads.json')) || []);
-
-    const lead = leads.find((l: any) =>
-      id.length < 36 ? l.id.startsWith(id) : l.id === id
-    );
-    if (!lead) return res.status(404).json({ error: 'lead not found' });
-
-    lead.stage = stage;
-    lead.updatedAt = new Date().toISOString();
-
     if (IS_CLOUD) {
-      await writeSyncedData(req, 'leads', leads);
+      let movedLead: any = null;
+      const { error } = await cloudReadModifyWrite(req, 'leads', (leads) => {
+        const lead = leads.find((l: any) => id.length < 36 ? l.id.startsWith(id) : l.id === id);
+        if (!lead) return null;
+        lead.stage = stage;
+        lead.updatedAt = new Date().toISOString();
+        movedLead = lead;
+        return leads;
+      });
+      if (error === 'not found') return res.status(404).json({ error: 'lead not found' });
+      if (error) return res.status(500).json({ error });
+      res.json(movedLead);
     } else {
+      const leads = readJSON(p('.leadpipe', 'leads.json')) || [];
+      const lead = leads.find((l: any) => id.length < 36 ? l.id.startsWith(id) : l.id === id);
+      if (!lead) return res.status(404).json({ error: 'lead not found' });
+      lead.stage = stage;
+      lead.updatedAt = new Date().toISOString();
       fs.writeFileSync(p('.leadpipe', 'leads.json'), JSON.stringify(leads, null, 2));
+      res.json(lead);
     }
-    res.json(lead);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1331,49 +1395,59 @@ if (IS_CLOUD && SYNC_SECRET) {
       const replaceTypes = ['activity', 'stats', 'config', 'inbox'] as const;
       let synced = 0;
 
-      for (const dt of arrayTypes) {
-        if (req.body[dt] !== undefined && Array.isArray(req.body[dt])) {
-          // Read current cloud data for this type
-          const { data: row } = await supabase
-            .from('workspace_data')
-            .select('data')
-            .eq('workspace_id', workspaceId)
-            .eq('data_type', dt)
-            .single();
-          const cloudItems: any[] = row?.data || [];
-          const deletedIds = cloudDeletedIds.get(`${workspaceId}:${dt}`);
-          const merged = mergeArrayData(req.body[dt], cloudItems, deletedIds);
-          if (dt === 'leads') {
-            for (const m of merged) {
-              const c = cloudItems.find((ci: any) => ci.id === m.id);
-              const l = req.body[dt].find((li: any) => li.id === m.id);
-              if (c && l && c.stage !== l.stage) {
-                console.log(`[merge] ${m.name}: local=${l.stage}(${l.updatedAt}) cloud=${c.stage}(${c.updatedAt}) → ${m.stage}`);
-              }
+      // Use write lock to prevent races with cloud UI endpoints
+      await withWriteLock(`sync:${workspaceId}`, async () => {
+        for (const dt of arrayTypes) {
+          if (req.body[dt] !== undefined && Array.isArray(req.body[dt])) {
+            // Read current cloud data — if read fails, SKIP (don't treat cloud as empty)
+            const { data: row, error: readErr } = await supabase
+              .from('workspace_data')
+              .select('data')
+              .eq('workspace_id', workspaceId)
+              .eq('data_type', dt)
+              .single();
+
+            if (readErr && readErr.code !== 'PGRST116') {
+              // PGRST116 = "no rows" (expected for first sync); anything else = real error
+              console.error(`[sync] SKIPPING ${dt} — cloud read failed:`, readErr.message);
+              continue; // Don't merge with empty cloud data — that would overwrite cloud edits!
+            }
+
+            const cloudItems: any[] = row?.data || [];
+            const deletedIds = cloudDeletedIds.get(`${workspaceId}:${dt}`);
+            const merged = mergeArrayData(req.body[dt], cloudItems, deletedIds);
+
+            const { error: writeErr } = await supabase.from('workspace_data').upsert({
+              workspace_id: workspaceId,
+              data_type: dt,
+              data: merged,
+              synced_at: new Date().toISOString(),
+            }, { onConflict: 'workspace_id,data_type' });
+
+            if (writeErr) {
+              console.error(`[sync] FAILED to write merged ${dt}:`, writeErr.message);
+            } else {
+              synced++;
             }
           }
-
-          await supabase.from('workspace_data').upsert({
-            workspace_id: workspaceId,
-            data_type: dt,
-            data: merged,
-            synced_at: new Date().toISOString(),
-          }, { onConflict: 'workspace_id,data_type' });
-          synced++;
         }
-      }
 
-      for (const dt of replaceTypes) {
-        if (req.body[dt] !== undefined) {
-          await supabase.from('workspace_data').upsert({
-            workspace_id: workspaceId,
-            data_type: dt,
-            data: req.body[dt],
-            synced_at: new Date().toISOString(),
-          }, { onConflict: 'workspace_id,data_type' });
-          synced++;
+        for (const dt of replaceTypes) {
+          if (req.body[dt] !== undefined) {
+            const { error: writeErr } = await supabase.from('workspace_data').upsert({
+              workspace_id: workspaceId,
+              data_type: dt,
+              data: req.body[dt],
+              synced_at: new Date().toISOString(),
+            }, { onConflict: 'workspace_id,data_type' });
+            if (writeErr) {
+              console.error(`[sync] FAILED to write ${dt}:`, writeErr.message);
+            } else {
+              synced++;
+            }
+          }
         }
-      }
+      });
 
       // Return merged array data so local can write it back (two-way sync)
       const mergedBack: Record<string, any> = {};
