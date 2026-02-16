@@ -235,6 +235,16 @@ function readYAML(filePath: string): any {
 
 const p = (...parts: string[]) => path.join(DATA_DIR, ...parts);
 
+// Module detection — which optional CLI tools are installed
+app.get('/api/modules', (_req, res) => {
+  if (IS_CLOUD) return res.json({ taskpipe: true, leadpipe: true, contentq: true });
+  res.json({
+    taskpipe: fs.existsSync(p('.taskpipe')),
+    leadpipe: fs.existsSync(p('.leadpipe')),
+    contentq: fs.existsSync(p('.contentq')),
+  });
+});
+
 // API — file-based endpoints (local mode only, return empty data in cloud mode)
 app.get('/api/tasks', async (_req, res) => {
   if (IS_CLOUD) return res.json(await readSyncedData(_req, 'tasks') || []);
@@ -1428,7 +1438,29 @@ if (IS_CLOUD && SYNC_SECRET) {
 
             const cloudItems: any[] = row?.data || [];
             const deletedIds = cloudDeletedIds.get(`${workspaceId}:${dt}`);
+
+            // Diagnostic: log merge inputs for leads
+            if (dt === 'leads') {
+              console.log(`[sync] leads merge: ${cloudItems.length} cloud items, ${req.body[dt].length} local items, readErr=${readErr?.code || 'none'}`);
+              for (const ci of cloudItems) {
+                console.log(`[sync]   cloud: ${ci.name} stage=${ci.stage} updated=${ci.updatedAt}`);
+              }
+              for (const li of req.body[dt]) {
+                console.log(`[sync]   local: ${li.name} stage=${li.stage} updated=${li.updatedAt}`);
+              }
+            }
+
             const merged = mergeArrayData(req.body[dt], cloudItems, deletedIds);
+
+            // Diagnostic: log merge output for leads
+            if (dt === 'leads') {
+              for (const mi of merged) {
+                const ci = cloudItems.find((c: any) => c.id === mi.id);
+                if (ci && ci.stage !== mi.stage) {
+                  console.log(`[sync]   CHANGED: ${mi.name} cloud=${ci.stage} → merged=${mi.stage}`);
+                }
+              }
+            }
 
             const { error: writeErr } = await supabase.from('workspace_data').upsert({
               workspace_id: workspaceId,
