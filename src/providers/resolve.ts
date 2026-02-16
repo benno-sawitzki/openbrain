@@ -12,6 +12,7 @@ import { TaskpipeProvider } from './taskpipe';
 import { LeadpipeProvider } from './leadpipe';
 import { ContentqProvider } from './contentq';
 import { TodoistProvider } from './todoist';
+import { GitHubProvider } from './github';
 import { PipedriveProvider } from './pipedrive';
 import { CachedProvider } from './cache';
 
@@ -163,6 +164,17 @@ export function resolveProviders(opts: {
           tasks = new CachedProvider<TaskProvider>(inner, 300_000) as unknown as TaskProvider;
         } else {
           console.warn('[resolve] Todoist configured but no api_key provided');
+        }
+        break;
+      }
+      case 'github': {
+        if (config?.github?.token && config?.github?.owner && config?.github?.repo) {
+          const inner = new GitHubProvider(
+            config.github as { token: string; owner: string; repo: string; max_items?: number; label_mapping?: Record<string, string> },
+          );
+          tasks = new CachedProvider<TaskProvider>(inner, 300_000) as unknown as TaskProvider;
+        } else {
+          console.warn('[resolve] GitHub configured but token/owner/repo not all provided');
         }
         break;
       }

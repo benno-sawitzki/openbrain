@@ -149,11 +149,6 @@ async function writeSyncedData(req: express.Request, dataType: string, payload: 
   if (!IS_CLOUD || !supabase) return false;
   const user = await resolveUser(req);
   if (!user) return false;
-  const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown';
-  console.log(`[WRITE] writeSyncedData(${dataType}) from: ${caller}`);
-  if (dataType === 'leads' && Array.isArray(payload)) {
-    for (const l of payload) console.log(`[WRITE]   ${l.name}: stage=${l.stage}`);
-  }
   const { error } = await supabase.from('workspace_data').upsert({
     workspace_id: user.workspaceId,
     data_type: dataType,
@@ -185,10 +180,6 @@ async function cloudReadModifyWrite(
     const result = modify(items);
     if (result === null) return { items: null, error: 'not found' };
 
-    console.log(`[WRITE] cloudRMW(${dataType}) writing ${Array.isArray(result) ? result.length : '?'} items`);
-    if (dataType === 'leads' && Array.isArray(result)) {
-      for (const l of result) console.log(`[WRITE]   ${l.name}: stage=${l.stage}`);
-    }
     const { error } = await supabase.from('workspace_data').upsert({
       workspace_id: user.workspaceId,
       data_type: dataType,
@@ -377,6 +368,19 @@ app.post('/api/provider-config/test', async (req, res) => {
           api_key: providerConfig.api_key,
           domain: providerConfig.domain || undefined,
           pipeline_id: providerConfig.pipeline_id ? parseInt(providerConfig.pipeline_id, 10) : undefined,
+        });
+        break;
+      }
+      case 'github': {
+        const { GitHubProvider } = await import('./providers/github');
+        if (!providerConfig?.token) return res.json({ ok: false, error: 'Token required' });
+        if (!providerConfig?.owner) return res.json({ ok: false, error: 'Owner required' });
+        if (!providerConfig?.repo) return res.json({ ok: false, error: 'Repository required' });
+        provider = new GitHubProvider({
+          token: providerConfig.token,
+          owner: providerConfig.owner,
+          repo: providerConfig.repo,
+          max_items: providerConfig.max_items ? parseInt(providerConfig.max_items, 10) : undefined,
         });
         break;
       }
@@ -1481,10 +1485,8 @@ const SYNC_SECRET = process.env.SYNC_SECRET || '';
 // Cloud side: receive sync data from local instance
 if (IS_CLOUD && SYNC_SECRET) {
   app.post('/api/sync', async (req, res) => {
-    console.log(`[WRITE] SYNC received from ${req.ip}`);
     const secret = req.headers['x-sync-secret'];
     if (!secret || secret !== SYNC_SECRET) {
-      console.log(`[WRITE] SYNC rejected — bad secret`);
       return res.status(401).json({ error: 'invalid sync secret' });
     }
 
@@ -1555,7 +1557,6 @@ if (IS_CLOUD && SYNC_SECRET) {
 
         for (const dt of replaceTypes) {
           if (req.body[dt] !== undefined) {
-            console.log(`[WRITE] sync replace: ${dt}`);
             const { error: writeErr } = await supabase.from('workspace_data').upsert({
               workspace_id: workspaceId,
               data_type: dt,

@@ -35,6 +35,17 @@ export const PROVIDER_REGISTRY: ProviderDef[] = [
       { key: 'max_items', label: 'Max Items', type: 'number', required: false, placeholder: '100' },
     ],
   },
+  {
+    id: 'github',
+    name: 'GitHub Issues',
+    slot: 'tasks',
+    fields: [
+      { key: 'token', label: 'Personal Access Token', type: 'password', required: true, placeholder: 'ghp_... or $GITHUB_TOKEN' },
+      { key: 'owner', label: 'Owner', type: 'text', required: true, placeholder: 'username or org' },
+      { key: 'repo', label: 'Repository', type: 'text', required: true, placeholder: 'repo-name' },
+      { key: 'max_items', label: 'Max Items', type: 'number', required: false, placeholder: '100' },
+    ],
+  },
 
   // CRM
   {
