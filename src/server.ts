@@ -1343,6 +1343,15 @@ if (IS_CLOUD && SYNC_SECRET) {
           const cloudItems: any[] = row?.data || [];
           const deletedIds = cloudDeletedIds.get(`${workspaceId}:${dt}`);
           const merged = mergeArrayData(req.body[dt], cloudItems, deletedIds);
+          if (dt === 'leads') {
+            for (const m of merged) {
+              const c = cloudItems.find((ci: any) => ci.id === m.id);
+              const l = req.body[dt].find((li: any) => li.id === m.id);
+              if (c && l && c.stage !== l.stage) {
+                console.log(`[merge] ${m.name}: local=${l.stage}(${l.updatedAt}) cloud=${c.stage}(${c.updatedAt}) → ${m.stage}`);
+              }
+            }
+          }
 
           await supabase.from('workspace_data').upsert({
             workspace_id: workspaceId,
