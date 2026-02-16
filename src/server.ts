@@ -93,14 +93,16 @@ async function readSyncedData(req: express.Request, dataType: string): Promise<a
 async function writeSyncedData(req: express.Request, dataType: string, payload: any): Promise<boolean> {
   if (!IS_CLOUD || !supabase) return false;
   const user = await resolveUser(req);
-  if (!user) return false;
-  await supabase.from('workspace_data').upsert({
+  if (!user) { console.log(`[sync-guard] writeSyncedData(${dataType}): no user`); return false; }
+  const { error } = await supabase.from('workspace_data').upsert({
     workspace_id: user.workspaceId,
     data_type: dataType,
     data: payload,
     synced_at: new Date().toISOString(),
   }, { onConflict: 'workspace_id,data_type' });
+  if (error) { console.error(`[sync-guard] writeSyncedData(${dataType}) FAILED:`, error.message); return false; }
   cloudEditTimestamps.set(`${user.workspaceId}:${dataType}`, Date.now());
+  console.log(`[sync-guard] writeSyncedData(${dataType}): OK, guard set for ${user.workspaceId}`);
   return true;
 }
 
@@ -567,11 +569,13 @@ app.post('/api/leads/:id/move', async (req, res) => {
     );
     if (!lead) return res.status(404).json({ error: 'lead not found' });
 
+    console.log(`[move-lead] ${lead.name}: ${lead.stage} → ${stage}`);
     lead.stage = stage;
     lead.updatedAt = new Date().toISOString();
 
     if (IS_CLOUD) {
-      await writeSyncedData(req, 'leads', leads);
+      const ok = await writeSyncedData(req, 'leads', leads);
+      console.log(`[move-lead] writeSyncedData result: ${ok}`);
     } else {
       fs.writeFileSync(p('.leadpipe', 'leads.json'), JSON.stringify(leads, null, 2));
     }
@@ -1301,8 +1305,11 @@ if (IS_CLOUD && SYNC_SECRET) {
           const guardKey = `${workspaceId}:${dt}`;
           const lastCloudEdit = cloudEditTimestamps.get(guardKey);
           if (lastCloudEdit && Date.now() - lastCloudEdit < CLOUD_EDIT_GUARD_MS) {
+            console.log(`[sync-guard] SKIPPING ${dt} — cloud-edited ${Math.round((Date.now() - lastCloudEdit) / 1000)}s ago`);
             continue;
           }
+          console.log(`[sync-guard] syncing ${dt} (no guard)`);
+
           await supabase.from('workspace_data').upsert({
             workspace_id: workspaceId,
             data_type: dt,
