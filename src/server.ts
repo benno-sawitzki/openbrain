@@ -37,6 +37,10 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const IS_CLOUD = !!(SUPABASE_URL && SUPABASE_SERVICE_KEY);
 const supabase = IS_CLOUD ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY) : null;
 
+// Track when data was modified via the cloud UI so sync doesn't overwrite it
+const cloudEditTimestamps = new Map<string, number>();
+const CLOUD_EDIT_GUARD_MS = 120_000; // Protect cloud edits for 2 minutes
+
 // Local mode: direct Gateway connection
 if (!IS_CLOUD) {
   initLocalGateway();
@@ -94,8 +98,9 @@ async function writeSyncedData(req: express.Request, dataType: string, payload: 
     workspace_id: user.workspaceId,
     data_type: dataType,
     data: payload,
-    updated_at: new Date().toISOString(),
+    synced_at: new Date().toISOString(),
   }, { onConflict: 'workspace_id,data_type' });
+  cloudEditTimestamps.set(`${user.workspaceId}:${dataType}`, Date.now());
   return true;
 }
 
@@ -1280,11 +1285,17 @@ if (IS_CLOUD && SYNC_SECRET) {
 
       for (const dt of dataTypes) {
         if (req.body[dt] !== undefined) {
+          // Skip if this data type was recently edited via the cloud UI
+          const guardKey = `${workspaceId}:${dt}`;
+          const lastCloudEdit = cloudEditTimestamps.get(guardKey);
+          if (lastCloudEdit && Date.now() - lastCloudEdit < CLOUD_EDIT_GUARD_MS) {
+            continue;
+          }
           await supabase.from('workspace_data').upsert({
             workspace_id: workspaceId,
             data_type: dt,
             data: req.body[dt],
-            updated_at: new Date().toISOString(),
+            synced_at: new Date().toISOString(),
           }, { onConflict: 'workspace_id,data_type' });
           synced++;
         }
@@ -1359,6 +1370,56 @@ if (!IS_CLOUD && SYNC_URL && SYNC_SECRET && SYNC_WORKSPACE_ID) {
 
   console.log(`   Sync: pushing to ${SYNC_URL} every ${SYNC_INTERVAL / 1000}s`);
 }
+
+// ── Sync status ──────────────────────────────────────────────────────
+app.get('/api/sync/status', async (req, res) => {
+  if (!IS_CLOUD || !supabase) {
+    return res.json({ syncEnabled: false });
+  }
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const { data } = await supabase
+      .from('workspace_data')
+      .select('data_type, updated_at')
+      .eq('workspace_id', user.workspaceId);
+    const types: Record<string, string> = {};
+    let latest: string | null = null;
+    for (const row of (data || [])) {
+      types[row.data_type] = row.updated_at;
+      if (!latest || row.updated_at > latest) latest = row.updated_at;
+    }
+    res.json({ syncEnabled: true, types, latest });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Gateway reconnect ────────────────────────────────────────────────
+app.post('/api/gateway/reconnect', async (req, res) => {
+  if (!IS_CLOUD) {
+    return res.json({ ok: true, message: 'local mode — no cached connection' });
+  }
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  gatewayPool.disconnect(user.workspaceId);
+  res.json({ ok: true });
+});
+
+// ── Account deletion ─────────────────────────────────────────────────
+app.delete('/api/account', async (req, res) => {
+  if (!IS_CLOUD || !supabase) {
+    return res.status(400).json({ error: 'only available in cloud mode' });
+  }
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    // Delete workspace first (CASCADE will clean up workspace_data)
+    await supabase.from('workspaces').delete().eq('user_id', user.userId);
+    // Delete user via admin API
+    const { error } = await supabase.auth.admin.deleteUser(user.userId);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
 
 // Static
 app.use(express.static(path.join(__dirname, '..', 'public')));

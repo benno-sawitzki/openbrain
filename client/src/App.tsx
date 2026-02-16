@@ -11,6 +11,7 @@ import { FeedTab } from './tabs/Feed';
 import { CalendarTab } from './tabs/Calendar';
 import { WorkflowsTab } from './tabs/Workflows';
 import { SystemTab } from './tabs/System';
+import { SettingsTab } from './tabs/Settings';
 import { HelpDrawer } from './components/HelpDrawer';
 import { LoginPage } from './pages/Login';
 import { LandingPage } from './pages/Landing';
@@ -28,6 +29,7 @@ const TABS = [
   { id: 'brain', label: 'Brain', icon: '\u2B21' },
   { id: 'feed', label: 'Feed', icon: '\u25CE' },
   { id: 'system', label: 'System', icon: '\u2661' },
+  { id: 'settings', label: 'Settings', icon: '\u2318' },
 ] as const;
 
 const emptyState: AppState = {
@@ -255,6 +257,7 @@ export default function App() {
         {tab === 'brain' && <BrainTab />}
         {tab === 'feed' && <FeedTab activity={state.activity} onNavigate={(t) => setTab(t as TabId)} />}
         {tab === 'system' && <SystemTab agents={state.agents} notify={notify} />}
+        {tab === 'settings' && <SettingsTab auth={auth} notify={notify} />}
       </main>
     </div>
   );

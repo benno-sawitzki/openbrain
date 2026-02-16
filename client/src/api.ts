@@ -175,3 +175,13 @@ export const pauseWorkflowRun = (id: string): Promise<any> =>
 
 export const cancelWorkflowRun = (id: string): Promise<any> =>
   apiFetch(`/api/wf/runs/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json);
+
+// Settings page endpoints
+export const fetchSyncStatus = (): Promise<any> =>
+  apiFetch('/api/sync/status').then(json);
+
+export const reconnectGateway = (): Promise<any> =>
+  apiFetch('/api/gateway/reconnect', { method: 'POST' }).then(json);
+
+export const deleteAccount = (): Promise<any> =>
+  apiFetch('/api/account', { method: 'DELETE' }).then(json);
