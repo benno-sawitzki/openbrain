@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Toaster, toast } from 'sonner';
-import { fetchAll } from './api';
+import { fetchAll, fetchModules } from './api';
+import type { Modules } from './api';
 import type { AppState } from './types';
 import { DashboardTab } from './tabs/Dashboard';
 import { TasksTab } from './tabs/Tasks';
@@ -37,46 +38,79 @@ const emptyState: AppState = {
   activity: {}, stats: {}, config: {}, agents: {},
 };
 
+// Which module (if any) each tab requires to be visible
+const TAB_REQUIRES: Partial<Record<string, string | '_any'>> = {
+  tasks: 'taskpipe',
+  pipeline: 'leadpipe',
+  content: 'contentq',
+  feed: '_any', // shown when at least one module is active
+};
+
 export default function App() {
   const auth = useAuth();
 
   type TabId = typeof TABS[number]['id'];
-  const getTabFromHash = (): TabId => {
+  const [modules, setModules] = useState<Modules>({});
+
+  const visibleTabs = useMemo(() => {
+    const hasAny = Object.values(modules).some(Boolean);
+    return TABS.filter(t => {
+      const req = TAB_REQUIRES[t.id];
+      if (!req) return true; // always shown
+      if (req === '_any') return hasAny;
+      return modules[req] !== false;
+    });
+  }, [modules]);
+
+  const getTabFromHash = useCallback((): TabId => {
     const hash = window.location.hash.replace('#', '');
-    return (TABS.find(t => t.id === hash)?.id || 'dashboard') as TabId;
-  };
+    const found = visibleTabs.find(t => t.id === hash);
+    return (found?.id || 'dashboard') as TabId;
+  }, [visibleTabs]);
+
   const [tab, setTabState] = useState<TabId>(getTabFromHash);
   const setTab = (id: TabId) => {
     window.location.hash = id;
     setTabState(id);
   };
 
+  // Redirect to dashboard if current tab becomes hidden
+  useEffect(() => {
+    if (!visibleTabs.find(t => t.id === tab)) {
+      setTab('dashboard');
+    }
+  }, [visibleTabs, tab]);
+
   useEffect(() => {
     const onHash = () => setTabState(getTabFromHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
-  }, []);
+  }, [getTabFromHash]);
   const [state, setState] = useState<AppState>(emptyState);
   const [helpOpen, setHelpOpen] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (mods?: Modules) => {
     try {
-      const data = await fetchAll();
+      const data = await fetchAll(mods ?? modules);
       setState(data);
     } catch (e) {
       console.error('Failed to fetch data', e);
     } finally {
       setInitialLoading(false);
     }
-  }, []);
+  }, [modules]);
 
   useEffect(() => {
     if (auth.isCloudMode && !auth.user) return;
     if (auth.isCloudMode && !auth.workspace?.gateway_url) return;
     setInitialLoading(true);
-    refresh();
-    const id = setInterval(refresh, 30000);
+    // Fetch modules first, then data
+    fetchModules().then(mods => {
+      setModules(mods);
+      return refresh(mods);
+    }).catch(() => refresh());
+    const id = setInterval(() => refresh(), 30000);
     return () => clearInterval(id);
   }, [refresh, auth.user, auth.workspace?.gateway_url, auth.isCloudMode]);
 
@@ -181,7 +215,7 @@ export default function App() {
 
           {/* Navigation */}
           <nav className="flex items-center gap-0.5">
-            {TABS.map(t => {
+            {visibleTabs.map(t => {
               const isActive = tab === t.id;
               return (
                 <button
@@ -248,7 +282,7 @@ export default function App() {
 
       {/* Content with entrance animation */}
       <main className="p-6 max-w-[1600px] mx-auto animate-fade-up" key={tab}>
-        {tab === 'dashboard' && <DashboardTab state={state} onRefresh={refresh} notify={notify} />}
+        {tab === 'dashboard' && <DashboardTab state={state} onRefresh={refresh} notify={notify} modules={modules} />}
         {tab === 'tasks' && <TasksTab tasks={state.tasks} onRefresh={refresh} notify={notify} setState={setState} />}
         {tab === 'pipeline' && <PipelineTab leads={state.leads} onRefresh={refresh} notify={notify} setState={setState} />}
         {tab === 'content' && <ContentTab content={state.content} inbox={state.inbox} onRefresh={refresh} notify={notify} />}

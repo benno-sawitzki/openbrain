@@ -45,15 +45,20 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, headers });
 }
 
-export async function fetchAll(): Promise<AppState> {
+export type Modules = Record<string, boolean>;
+
+export const fetchModules = (): Promise<Modules> =>
+  apiFetch('/api/modules').then(json);
+
+export async function fetchAll(modules?: Modules): Promise<AppState> {
   const [tasks, leads, content, activity, stats, config, inbox, agents] = await Promise.all([
-    apiFetch('/api/tasks').then(json),
-    apiFetch('/api/leads').then(json),
-    apiFetch('/api/content').then(json),
+    modules?.taskpipe !== false ? apiFetch('/api/tasks').then(json) : [],
+    modules?.leadpipe !== false ? apiFetch('/api/leads').then(json) : [],
+    modules?.contentq !== false ? apiFetch('/api/content').then(json) : [],
     apiFetch('/api/activity').then(json),
     apiFetch('/api/stats').then(json),
     apiFetch('/api/config').then(json),
-    apiFetch('/api/inbox').then(json),
+    modules?.contentq !== false ? apiFetch('/api/inbox').then(json) : [],
     apiFetch('/api/agents').then(json),
   ]);
   return { tasks, leads, content, inbox, activity, stats, config, agents } as AppState;
