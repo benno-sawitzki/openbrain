@@ -530,7 +530,9 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
                 const isLoadingFiles = agentFilesLoading === a.id;
                 const model = cfg?.model || agentDefaults?.model?.primary || a.model;
                 const toolLines = describeTools(cfg?.tools);
-                const workflow = a.id?.includes('/') ? a.id.split('/')[0] : null;
+                // Detect workflow group from config's original ID (bug-fix/triager) or infer from hyphenated ID
+                const configId = cfg?._configId || '';
+                const workflow = configId.includes('/') ? configId.split('/')[0] : null;
 
                 return (
                   <div key={a.id} className={`rounded-lg transition-colors ${isExpanded ? 'bg-white/[0.03]' : 'bg-white/[0.02] hover:bg-white/[0.04]'}`}>
@@ -613,11 +615,23 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
                                 </div>
                               </div>
                             )}
+                            {/* Gateway-provided data (always available) */}
+                            {!cfg && !isLoadingFiles && (
+                              <div className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
+                                <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5">Agent Info (from Gateway)</div>
+                                <div className="text-[11px] text-muted-foreground/60 font-mono space-y-0.5">
+                                  <div>ID: {a.id}</div>
+                                  {a.name && <div>Name: {a.name}</div>}
+                                  {a.model && <div>Model: {a.model}</div>}
+                                  {a.provider && <div>Provider: {a.provider}</div>}
+                                  {a.type && <div>Type: {a.type}</div>}
+                                  {a.description && <div>Description: {a.description}</div>}
+                                </div>
+                                <div className="mt-2 text-[10px] text-muted-foreground/30">Full config requires local access to Mac Mini</div>
+                              </div>
+                            )}
                             {isLoadingFiles && (
                               <div className="text-xs text-muted-foreground/40 text-center py-4">Loading agent files...</div>
-                            )}
-                            {!isLoadingFiles && !files && !cfg && (
-                              <div className="text-xs text-muted-foreground/40 text-center py-4">No config data available for this agent</div>
                             )}
                           </div>
                         )}
@@ -647,11 +661,21 @@ export function SystemTab({ agents, notify }: { agents: any; notify: (m: string)
 
                         {/* JSON tab */}
                         {agentTab === 'json' && (
-                          <div className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
-                            <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5">openclaw.json &rarr; agents.list["{a.id}"]</div>
-                            <pre className="text-xs text-muted-foreground/80 whitespace-pre-wrap leading-relaxed font-mono max-h-96 overflow-y-auto">
-                              {cfg ? JSON.stringify(cfg, null, 2) : 'No config found — agent may not be in openclaw.json'}
-                            </pre>
+                          <div className="space-y-3">
+                            {cfg && (
+                              <div className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
+                                <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5">openclaw.json &rarr; agents.list["{cfg._configId || a.id}"]</div>
+                                <pre className="text-xs text-muted-foreground/80 whitespace-pre-wrap leading-relaxed font-mono max-h-96 overflow-y-auto">
+                                  {JSON.stringify(cfg, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                            <div className="rounded-lg bg-white/[0.02] border border-border/20 p-3">
+                              <div className="text-[10px] text-muted-foreground uppercase font-semibold mb-1.5">Gateway Agent Data</div>
+                              <pre className="text-xs text-muted-foreground/80 whitespace-pre-wrap leading-relaxed font-mono max-h-96 overflow-y-auto">
+                                {JSON.stringify(a, null, 2)}
+                              </pre>
+                            </div>
                           </div>
                         )}
                       </div>

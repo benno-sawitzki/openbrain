@@ -533,13 +533,17 @@ app.get('/api/agents', async (_req, res) => {
   });
 });
 
+// Normalize agent IDs: gateway uses hyphens (bug-fix-triager), config uses slashes (bug-fix/triager)
+function normalizeAgentId(id: string): string {
+  return id.replace(/\//g, '-');
+}
+
 // Agent config from openclaw.json — returns full agent list with defaults
 app.get('/api/agents/config', async (_req, res) => {
   try {
     const config = await readOpenclawConfig();
     if (!config?.agents) return res.json({ agents: [], defaults: {} });
     const defaults = config.agents.defaults || {};
-    // Strip sensitive fields from defaults
     const safeDefaults = {
       model: defaults.model,
       heartbeat: defaults.heartbeat,
@@ -548,9 +552,16 @@ app.get('/api/agents/config', async (_req, res) => {
       compaction: defaults.compaction,
       typingMode: defaults.typingMode,
     };
-    res.json({ agents: config.agents.list || [], defaults: safeDefaults });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    // Normalize agent IDs to match gateway format
+    const agents = (config.agents.list || []).map((a: any) => ({
+      ...a,
+      _configId: a.id,
+      id: normalizeAgentId(a.id),
+    }));
+    res.json({ agents, defaults: safeDefaults });
+  } catch {
+    // SSH/local read failed (e.g. cloud mode) — return empty gracefully
+    res.json({ agents: [], defaults: {} });
   }
 });
 
@@ -559,7 +570,10 @@ app.get('/api/agents/:agentId/files', async (req, res) => {
   try {
     const agentId = req.params.agentId;
     const config = await readOpenclawConfig();
-    const agent = (config?.agents?.list || []).find((a: any) => a.id === agentId);
+    // Match by normalized ID
+    const agent = (config?.agents?.list || []).find((a: any) =>
+      normalizeAgentId(a.id) === agentId || a.id === agentId
+    );
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     const workspace = agent.workspace;
     if (!workspace) return res.json({ files: {} });
@@ -574,8 +588,9 @@ app.get('/api/agents/:agentId/files', async (req, res) => {
       }
     }
     res.json({ files, workspace, agentDir: agent.agentDir });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch {
+    // SSH/local read failed (e.g. cloud mode)
+    res.json({ files: {}, workspace: null, agentDir: null });
   }
 });
 
