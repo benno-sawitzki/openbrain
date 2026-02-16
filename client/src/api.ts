@@ -233,3 +233,13 @@ export const reconnectGateway = (): Promise<any> =>
 
 export const deleteAccount = (): Promise<any> =>
   apiFetch('/api/account', { method: 'DELETE' }).then(json);
+
+// API key management
+export const fetchApiKey = (): Promise<{ exists: boolean; masked?: string }> =>
+  apiFetch('/api/keys').then(json);
+
+export const generateApiKey = (): Promise<{ key: string }> =>
+  apiFetch('/api/keys', { method: 'POST' }).then(json);
+
+export const revokeApiKey = (): Promise<{ ok: boolean }> =>
+  apiFetch('/api/keys', { method: 'DELETE' }).then(json);

@@ -20,6 +20,9 @@ import {
   fetchProviderConfig,
   saveProviderConfig,
   testProviderConnection,
+  fetchApiKey,
+  generateApiKey,
+  revokeApiKey,
 } from '../api';
 
 /* ── Types ── */
@@ -177,6 +180,12 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
   const [syncStatus, setSyncStatus] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // API Key
+  const [apiKeyInfo, setApiKeyInfo] = useState<{ exists: boolean; masked?: string } | null>(null);
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [generatingKey, setGeneratingKey] = useState(false);
+  const [revokingKey, setRevokingKey] = useState(false);
+
   // Danger Zone
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -194,6 +203,7 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
   useEffect(() => {
     if (auth.isCloudMode) {
       fetchConnectionData();
+      fetchApiKey().then(setApiKeyInfo).catch(() => {});
     }
     // Fetch provider registry and current config
     Promise.all([fetchProviderRegistry(), fetchProviderConfig()])
@@ -280,6 +290,39 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
       notify('Failed to save provider config');
     }
     setSavingProviders(false);
+  };
+
+  const handleGenerateKey = async () => {
+    setGeneratingKey(true);
+    try {
+      const { key } = await generateApiKey();
+      setNewKey(key);
+      setApiKeyInfo({ exists: true, masked: key.slice(0, 3) + '****' + key.slice(-4) });
+      notify('API key generated — copy it now, it won\'t be shown again');
+    } catch {
+      notify('Failed to generate API key');
+    }
+    setGeneratingKey(false);
+  };
+
+  const handleRevokeKey = async () => {
+    setRevokingKey(true);
+    try {
+      await revokeApiKey();
+      setApiKeyInfo({ exists: false });
+      setNewKey(null);
+      notify('API key revoked');
+    } catch {
+      notify('Failed to revoke API key');
+    }
+    setRevokingKey(false);
+  };
+
+  const handleCopyKey = () => {
+    if (newKey) {
+      navigator.clipboard.writeText(newKey);
+      notify('API key copied to clipboard');
+    }
   };
 
   const handleChangePassword = async () => {
@@ -457,7 +500,83 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
         </div>
       </div>
 
-      {/* ── Section 2: Integrations ── */}
+      {/* ── Section 2: API Key (cloud mode only) ── */}
+      {auth.isCloudMode && (
+        <div className="glass-card rounded-xl p-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <span className="w-1 h-5 rounded-full" style={{ background: palette.subtle }} />
+            API Key
+          </h2>
+
+          <div className="space-y-4">
+            {newKey ? (
+              /* Just generated — show full key once */
+              <div>
+                <Label className="text-xs text-muted-foreground uppercase">Your API Key</Label>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <code className="flex-1 text-sm font-mono px-3 py-2 rounded-lg border border-border/50"
+                    style={{ background: 'rgba(220, 38, 38, 0.06)', color: palette.accent }}>
+                    {newKey}
+                  </code>
+                  <Button variant="secondary" size="sm" className="rounded-lg shrink-0" onClick={handleCopyKey}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground/70 mt-2">
+                  Copy this key now — it won't be shown in full again.
+                </p>
+              </div>
+            ) : apiKeyInfo?.exists ? (
+              /* Key exists — show masked */
+              <div>
+                <Label className="text-xs text-muted-foreground uppercase">Current Key</Label>
+                <div className="mt-1.5 text-sm font-mono px-3 py-2 rounded-lg bg-white/[0.03] text-muted-foreground">
+                  {apiKeyInfo.masked}
+                </div>
+              </div>
+            ) : (
+              /* No key */
+              <p className="text-sm text-muted-foreground">
+                No API key yet. Generate one to use the CLI tools from any machine.
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="rounded-lg font-semibold"
+                style={{ background: palette.accent, color: palette.white }}
+                disabled={generatingKey}
+                onClick={handleGenerateKey}
+              >
+                {generatingKey ? 'Generating...' : apiKeyInfo?.exists ? 'Regenerate Key' : 'Generate API Key'}
+              </Button>
+              {apiKeyInfo?.exists && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="rounded-lg"
+                  disabled={revokingKey}
+                  onClick={handleRevokeKey}
+                >
+                  {revokingKey ? 'Revoking...' : 'Revoke'}
+                </Button>
+              )}
+            </div>
+
+            {/* Usage instructions */}
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer hover:text-foreground transition-colors">How to use</summary>
+              <div className="mt-3 space-y-2 text-pretty leading-relaxed">
+                <p><strong>CLI tools:</strong> Run <code className="px-1 py-0.5 rounded bg-white/[0.06]">taskpipe init --cloud</code> and paste your API key when prompted.</p>
+                <p><strong>Environment variables:</strong> Set <code className="px-1 py-0.5 rounded bg-white/[0.06]">OPENBRAIN_API_KEY</code> and <code className="px-1 py-0.5 rounded bg-white/[0.06]">OPENBRAIN_URL=https://openbrain.space</code> for agents and scripts.</p>
+              </div>
+            </details>
+          </div>
+        </div>
+      )}
+
+      {/* ── Section 3: Integrations ── */}
       {registry && (
         <div className="glass-card rounded-xl p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
