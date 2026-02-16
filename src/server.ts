@@ -1366,7 +1366,21 @@ if (IS_CLOUD && SYNC_SECRET) {
         }
       }
 
-      res.json({ ok: true, synced });
+      // Return merged array data so local can write it back (two-way sync)
+      const mergedBack: Record<string, any> = {};
+      for (const dt of arrayTypes) {
+        if (req.body[dt] !== undefined) {
+          const { data: row } = await supabase
+            .from('workspace_data')
+            .select('data')
+            .eq('workspace_id', workspaceId)
+            .eq('data_type', dt)
+            .single();
+          if (row?.data) mergedBack[dt] = row.data;
+        }
+      }
+
+      res.json({ ok: true, synced, merged: mergedBack });
     } catch (e: any) {
       console.error('Sync error:', e.message);
       res.status(500).json({ error: e.message });
@@ -1421,6 +1435,21 @@ if (!IS_CLOUD && SYNC_URL && SYNC_SECRET && SYNC_WORKSPACE_ID) {
       if (!resp.ok) {
         const err = await resp.text();
         console.error(`Sync failed (${resp.status}): ${err}`);
+      } else {
+        // Two-way sync: write back merged data from cloud to local JSON files
+        try {
+          const result = await resp.json();
+          const mergedFiles: [string, string][] = [
+            ['tasks', p('.taskpipe', 'tasks.json')],
+            ['leads', p('.leadpipe', 'leads.json')],
+            ['content', p('.contentq', 'queue.json')],
+          ];
+          for (const [key, filePath] of mergedFiles) {
+            if (result.merged?.[key] && Array.isArray(result.merged[key])) {
+              fs.writeFileSync(filePath, JSON.stringify(result.merged[key], null, 2));
+            }
+          }
+        } catch {}
       }
     } catch (e: any) {
       console.error('Sync error:', e.message);
