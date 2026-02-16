@@ -229,6 +229,7 @@ program.command('done <id>').description('Complete a task')
 
     // Update streaks
     const config = await loadConfig();
+    if (!config.streaks) config.streaks = { current: 0, best: 0, lastCompletionDate: '' };
     if (config.streaks.lastCompletionDate !== td) {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
