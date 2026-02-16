@@ -10,6 +10,7 @@ const CONFIG_FILE = path.join(DIR, 'config.yaml');
 const TEMPLATES_DIR = path.join(DIR, 'templates');
 
 export function ensureDir(): void {
+  if (isCloudMode()) return;
   if (!fs.existsSync(DIR)) {
     throw new Error('Not initialized. Run `leadpipe init` first.');
   }

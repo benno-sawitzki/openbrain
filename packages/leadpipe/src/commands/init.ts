@@ -10,7 +10,7 @@ export function initCmd(program: Command): void {
     .action(async (opts: any) => {
       if (opts.cloud) {
         const { OpenBrainClient, saveOpenBrainConfig, getConfigPath } = await import('@openbrain/cli-client');
-        const url = opts.url || process.env.OPENBRAIN_URL || 'https://openbrain.bennosan.com';
+        const url = opts.url || process.env.OPENBRAIN_URL || 'https://openbrain.space';
         const key = opts.key || process.env.OPENBRAIN_API_KEY;
         if (!key) { console.error(chalk.red('API key required. Use --key <key> or set OPENBRAIN_API_KEY')); process.exit(1); }
         process.stdout.write('Testing connection... ');

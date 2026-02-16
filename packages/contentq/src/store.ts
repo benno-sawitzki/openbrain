@@ -11,6 +11,7 @@ export function getCqDir(): string {
 }
 
 export function ensureInitialized(): void {
+  if (isCloudMode()) return;
   if (!fs.existsSync(getCqDir())) {
     console.error('Not initialized. Run: contentq init');
     process.exit(1);

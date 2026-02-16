@@ -8,7 +8,7 @@ import { isJsonMode, out } from '../output';
 export async function initCommand(opts?: { cloud?: boolean; url?: string; key?: string }) {
   if (opts?.cloud) {
     const { OpenBrainClient, saveOpenBrainConfig, getConfigPath } = await import('@openbrain/cli-client');
-    const url = opts.url || process.env.OPENBRAIN_URL || 'https://openbrain.bennosan.com';
+    const url = opts.url || process.env.OPENBRAIN_URL || 'https://openbrain.space';
     const key = opts.key || process.env.OPENBRAIN_API_KEY;
     if (!key) {
       if (isJsonMode()) return out({ success: false, error: 'API key required' });

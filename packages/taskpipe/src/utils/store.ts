@@ -11,6 +11,7 @@ const PATTERNS_FILE = path.join(TASKPIPE_DIR, 'patterns.json');
 const GHOSTS_FILE = path.join(TASKPIPE_DIR, 'ghosts.json');
 
 export function ensureInit(): void {
+  if (isCloudMode()) return;
   if (!fs.existsSync(TASKPIPE_DIR)) {
     console.error('Not initialized. Run: taskpipe init');
     process.exit(1);
@@ -18,7 +19,7 @@ export function ensureInit(): void {
 }
 
 export function isInitialized(): boolean {
-  return fs.existsSync(TASKPIPE_DIR);
+  return isCloudMode() || fs.existsSync(TASKPIPE_DIR);
 }
 
 export function initStore(): void {

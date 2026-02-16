@@ -1,6 +1,6 @@
 import { loadOpenBrainConfig } from './config';
 
-const DEFAULT_URL = 'https://openbrain.bennosan.com';
+const DEFAULT_URL = 'https://openbrain.space';
 
 export function resolveApiKey(): string | null {
   // 1. Env var (for agents on Mac Mini)
