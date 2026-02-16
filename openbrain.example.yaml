@@ -1,0 +1,37 @@
+# Open Brain — Provider Configuration
+#
+# Place this file at openbrain.yaml (next to the marketing/ data directory)
+# to configure which services power each dashboard slot.
+#
+# Without this file, Open Brain auto-detects CLI tools (.taskpipe/, .leadpipe/, .contentq/).
+# With this file, explicit config wins over auto-detection.
+
+providers:
+  tasks: taskpipe           # taskpipe (default), todoist, github, linear
+  crm: leadpipe             # leadpipe (default), pipedrive, hubspot
+  content: contentq         # contentq (default) or null to disable
+
+# --- Todoist (tasks slot) ---
+# todoist:
+#   api_key: ${TODOIST_API_KEY}       # env var reference, or paste key directly
+#   project_ids: [123456, 789012]     # optional: limit to specific projects
+#   max_items: 20                     # max tasks to show (default: 50)
+
+# --- Pipedrive (CRM slot) — coming soon ---
+# pipedrive:
+#   api_key: ${PIPEDRIVE_API_KEY}
+#   domain: your-company
+#   pipeline_id: 1
+#   stage_mapping:
+#     1: cold
+#     2: warm
+#     3: hot
+#     4: proposal
+#     5: won
+
+# --- GitHub Issues (tasks slot) — coming soon ---
+# github:
+#   token: ${GITHUB_TOKEN}
+#   owner: your-org
+#   repo: your-repo
+#   max_items: 20

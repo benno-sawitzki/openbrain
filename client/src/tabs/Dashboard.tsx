@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { createTask, createLead, createContent, moveTask, fetchDaily, fetchRevenue, fetchAll as apiFetchAll } from '../api';
+import { createTask, createLead, createContent, moveTask, fetchDaily, fetchRevenue, fetchAll as apiFetchAll, slotActive } from '../api';
 import type { Modules } from '../api';
 import type { AppState, Lead } from '../types';
 import { palette, accentAlpha, mutedAlpha, errorAlpha } from '../theme';
@@ -27,12 +27,12 @@ interface QuickAction {
 }
 
 const ACTIONS: QuickAction[] = [
-  { id: 'task', icon: '\u25A3', title: 'Add Task', description: 'Create a new task with energy & due date', color: palette.accent, requires: 'taskpipe' },
-  { id: 'lead', icon: '\u25C9', title: 'Add Lead', description: 'Add a new lead to the pipeline', color: palette.subtle, requires: 'leadpipe' },
-  { id: 'content', icon: '\u2756', title: 'Draft Content', description: 'Create a content draft for a platform', color: palette.muted, requires: 'contentq' },
+  { id: 'task', icon: '\u25A3', title: 'Add Task', description: 'Create a new task with energy & due date', color: palette.accent, requires: 'tasks' },
+  { id: 'lead', icon: '\u25C9', title: 'Add Lead', description: 'Add a new lead to the pipeline', color: palette.subtle, requires: 'crm' },
+  { id: 'content', icon: '\u2756', title: 'Draft Content', description: 'Create a content draft for a platform', color: palette.muted, requires: 'content' },
   { id: 'briefing', icon: '\u{1F4CB}', title: 'Morning Briefing', description: "Get today's overview in one click", color: palette.muted },
-  { id: 'complete', icon: '\u2705', title: 'Complete Task', description: 'Mark an active task as done', color: palette.accent, requires: 'taskpipe' },
-  { id: 'pipeline', icon: '\u{1F4CA}', title: 'Pipeline Report', description: 'Quick revenue & pipeline summary', color: palette.subtle, requires: 'leadpipe' },
+  { id: 'complete', icon: '\u2705', title: 'Complete Task', description: 'Mark an active task as done', color: palette.accent, requires: 'tasks' },
+  { id: 'pipeline', icon: '\u{1F4CA}', title: 'Pipeline Report', description: 'Quick revenue & pipeline summary', color: palette.subtle, requires: 'crm' },
 ];
 
 function formatCalDate(s: string): string {
@@ -77,11 +77,20 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
   const [daily, setDaily] = useState<DailyData | null>(null);
 
   const has = useMemo(() => ({
-    taskpipe: modules.taskpipe !== false,
-    leadpipe: modules.leadpipe !== false,
-    contentq: modules.contentq !== false,
-    any: Object.values(modules).some(Boolean),
+    tasks: slotActive(modules, 'tasks'),
+    crm: slotActive(modules, 'crm'),
+    content: slotActive(modules, 'content'),
+    any: slotActive(modules, 'tasks') || slotActive(modules, 'crm') || slotActive(modules, 'content'),
   }), [modules]);
+
+  // Provider display names for badges
+  const providerName = (slot: 'tasks' | 'crm' | 'content'): string | null => {
+    const info = modules[slot] as { provider: string; name: string } | false | undefined;
+    if (!info || typeof info !== 'object') return null;
+    // Don't show badge for default CLI tools
+    if (['taskpipe', 'leadpipe', 'contentq'].includes(info.provider)) return null;
+    return info.name;
+  };
 
   // Quick Actions state
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -183,21 +192,21 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
     .slice(0, 3);
 
   // Alerts: only show module-relevant ones
-  const showOverdue = has.taskpipe && daily?.overdue && daily.overdue > 0;
-  const showFollowUps = has.leadpipe && daily?.followUps.filter(f => f.overdue).length;
-  const showStakeRisk = has.taskpipe && s.stakeRisk && s.stakeRisk > 0;
+  const showOverdue = has.tasks && daily?.overdue && daily.overdue > 0;
+  const showFollowUps = has.crm && daily?.followUps.filter(f => f.overdue).length;
+  const showStakeRisk = has.tasks && s.stakeRisk && s.stakeRisk > 0;
   const hasAlerts = showOverdue || showFollowUps || showStakeRisk;
 
   // Stats entries to show
   const statEntries: { label: string; icon: string; value: React.ReactNode }[] = [];
-  if (has.taskpipe) {
+  if (has.tasks) {
     statEntries.push({ label: 'Streak', icon: '\u{1F525}', value: <>{s.streak || 0} <span className="text-sm text-muted-foreground font-normal">days</span></> });
     statEntries.push({ label: 'Done Today', icon: '\u2705', value: <>{s.doneToday || 0}</> });
   }
-  if (has.leadpipe) {
+  if (has.crm) {
     statEntries.push({ label: 'Pipeline', icon: '\u25C9', value: <>{'\u20AC'}{(s.pipelineValue || 0).toLocaleString()}</> });
   }
-  if (has.contentq) {
+  if (has.content) {
     statEntries.push({ label: 'Drafts', icon: '\u2756', value: <>{s.drafts || 0}</> });
   }
   if (daily && daily.todoist.length > 0) {
@@ -205,11 +214,11 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
   }
 
   // Module cards for the main grid
-  const moduleCardCount = [has.taskpipe, has.leadpipe, has.contentq].filter(Boolean).length;
+  const moduleCardCount = [has.tasks, has.crm, has.content].filter(Boolean).length;
   const gridClass = moduleCardCount === 3 ? 'md:grid-cols-3' : moduleCardCount === 2 ? 'md:grid-cols-2' : '';
 
   // Filtered quick actions
-  const visibleActions = ACTIONS.filter(a => !a.requires || (modules[a.requires] !== false));
+  const visibleActions = ACTIONS.filter(a => !a.requires || slotActive(modules, a.requires as 'tasks' | 'crm' | 'content'));
 
   return (
     <div className="space-y-5 stagger-children">
@@ -308,7 +317,7 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
       {moduleCardCount > 0 && (
         <div className={`grid ${gridClass} gap-5`}>
           {/* Today's Tasks */}
-          {has.taskpipe && (
+          {has.tasks && (
             <Card className="glass-card rounded-xl border-border/50">
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-center">
@@ -316,7 +325,7 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
                     <span className="w-1 h-4 rounded-full" style={{ background: palette.accent }} />
                     Today's Tasks
                   </CardTitle>
-                  <span className="text-[10px] text-muted-foreground font-mono tracking-wider">taskpipe</span>
+                  <span className="text-[10px] text-muted-foreground font-mono tracking-wider">{providerName('tasks') ? `via ${providerName('tasks')}` : 'taskpipe'}</span>
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
@@ -343,7 +352,7 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
           )}
 
           {/* Pipeline Overview */}
-          {has.leadpipe && (
+          {has.crm && (
             <Card className="glass-card rounded-xl border-border/50">
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-center">
@@ -351,7 +360,7 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
                     <span className="w-1 h-4 rounded-full" style={{ background: palette.subtle }} />
                     Pipeline
                   </CardTitle>
-                  <span className="text-[10px] text-muted-foreground font-mono tracking-wider">leadpipe</span>
+                  <span className="text-[10px] text-muted-foreground font-mono tracking-wider">{providerName('crm') ? `via ${providerName('crm')}` : 'leadpipe'}</span>
                 </div>
               </CardHeader>
               <CardContent>
@@ -381,7 +390,7 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
           )}
 
           {/* Content Queue */}
-          {has.contentq && (
+          {has.content && (
             <Card className="glass-card rounded-xl border-border/50">
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-center">
@@ -389,7 +398,7 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
                     <span className="w-1 h-4 rounded-full" style={{ background: palette.muted }} />
                     Content Queue
                   </CardTitle>
-                  <span className="text-[10px] text-muted-foreground font-mono tracking-wider">contentq</span>
+                  <span className="text-[10px] text-muted-foreground font-mono tracking-wider">{providerName('content') ? `via ${providerName('content')}` : 'contentq'}</span>
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
@@ -636,7 +645,7 @@ export function DashboardTab({ state, modules = {} }: { state: AppState; onRefre
       )}
 
       {/* Inbox preview */}
-      {has.contentq && inbox.length > 0 && (
+      {has.content && inbox.length > 0 && (
         <Card className="glass-card rounded-xl border-border/50">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold tracking-wide flex items-center gap-3">

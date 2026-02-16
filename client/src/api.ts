@@ -45,20 +45,44 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, headers });
 }
 
-export type Modules = Record<string, boolean>;
+export interface ModuleInfo {
+  provider: string;   // e.g. 'todoist', 'taskpipe'
+  name: string;       // e.g. 'Todoist', 'Taskpipe'
+  writable: boolean;
+}
+
+export type Modules = {
+  tasks?: ModuleInfo | false;
+  crm?: ModuleInfo | false;
+  content?: ModuleInfo | false;
+  // Legacy compat — old boolean format
+  [key: string]: ModuleInfo | false | undefined;
+};
 
 export const fetchModules = (): Promise<Modules> =>
   apiFetch('/api/modules').then(json);
 
+// Check if a slot is active (works with both old boolean and new ModuleInfo format)
+export function slotActive(modules: Modules | undefined, slot: 'tasks' | 'crm' | 'content'): boolean {
+  if (!modules) return false;
+  const val = modules[slot];
+  if (val === false) return false;
+  if (val && typeof val === 'object') return true;
+  // Legacy compat: check old keys
+  const legacyMap: Record<string, string> = { tasks: 'taskpipe', crm: 'leadpipe', content: 'contentq' };
+  const legacy = modules[legacyMap[slot]];
+  return legacy !== false && legacy !== undefined;
+}
+
 export async function fetchAll(modules?: Modules): Promise<AppState> {
   const [tasks, leads, content, activity, stats, config, inbox, agents] = await Promise.all([
-    modules?.taskpipe !== false ? apiFetch('/api/tasks').then(json) : [],
-    modules?.leadpipe !== false ? apiFetch('/api/leads').then(json) : [],
-    modules?.contentq !== false ? apiFetch('/api/content').then(json) : [],
+    slotActive(modules, 'tasks') ? apiFetch('/api/tasks').then(json) : [],
+    slotActive(modules, 'crm') ? apiFetch('/api/leads').then(json) : [],
+    slotActive(modules, 'content') ? apiFetch('/api/content').then(json) : [],
     apiFetch('/api/activity').then(json),
     apiFetch('/api/stats').then(json),
     apiFetch('/api/config').then(json),
-    modules?.contentq !== false ? apiFetch('/api/inbox').then(json) : [],
+    slotActive(modules, 'content') ? apiFetch('/api/inbox').then(json) : [],
     apiFetch('/api/agents').then(json),
   ]);
   return { tasks, leads, content, inbox, activity, stats, config, agents } as AppState;

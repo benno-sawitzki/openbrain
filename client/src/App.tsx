@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Toaster, toast } from 'sonner';
-import { fetchAll, fetchModules } from './api';
+import { fetchAll, fetchModules, slotActive } from './api';
 import type { Modules } from './api';
 import type { AppState } from './types';
 import { DashboardTab } from './tabs/Dashboard';
@@ -38,11 +38,11 @@ const emptyState: AppState = {
   activity: {}, stats: {}, config: {}, agents: {},
 };
 
-// Which module (if any) each tab requires to be visible
-const TAB_REQUIRES: Partial<Record<string, string | '_any'>> = {
-  tasks: 'taskpipe',
-  pipeline: 'leadpipe',
-  content: 'contentq',
+// Which slot (if any) each tab requires to be visible
+const TAB_REQUIRES: Partial<Record<string, 'tasks' | 'crm' | 'content' | '_any'>> = {
+  tasks: 'tasks',
+  pipeline: 'crm',
+  content: 'content',
   feed: '_any', // shown when at least one module is active
 };
 
@@ -53,12 +53,12 @@ export default function App() {
   const [modules, setModules] = useState<Modules>({});
 
   const visibleTabs = useMemo(() => {
-    const hasAny = Object.values(modules).some(Boolean);
+    const hasAny = slotActive(modules, 'tasks') || slotActive(modules, 'crm') || slotActive(modules, 'content');
     return TABS.filter(t => {
       const req = TAB_REQUIRES[t.id];
       if (!req) return true; // always shown
       if (req === '_any') return hasAny;
-      return modules[req] !== false;
+      return slotActive(modules, req);
     });
   }, [modules]);
 

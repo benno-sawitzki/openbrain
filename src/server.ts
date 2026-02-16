@@ -11,6 +11,8 @@ import type { GatewayConfig } from './gateway';
 import { LocalWorkflowStorage, CloudWorkflowStorage } from './workflows/storage';
 import { WorkflowEngine } from './workflows/engine';
 import { createWorkflowRouter } from './workflows/routes';
+import { resolveProviders, getModulesResponse } from './providers/resolve';
+import type { ResolvedProviders } from './providers/resolve';
 
 // Load .env file if present (no dependency needed)
 const envPath = path.join(__dirname, '..', '.env');
@@ -235,30 +237,60 @@ function readYAML(filePath: string): any {
 
 const p = (...parts: string[]) => path.join(DATA_DIR, ...parts);
 
-// Module detection — which optional CLI tools are installed
-app.get('/api/modules', (_req, res) => {
-  if (IS_CLOUD) return res.json({ taskpipe: true, leadpipe: true, contentq: true });
-  res.json({
-    taskpipe: fs.existsSync(p('.taskpipe')),
-    leadpipe: fs.existsSync(p('.leadpipe')),
-    contentq: fs.existsSync(p('.contentq')),
+// --- Provider system ---
+// Resolves which service powers each slot (tasks, CRM, content) from openbrain.yaml
+// or auto-detects CLI tools. In cloud mode, providers use Supabase read/write functions.
+// NOTE: Cloud mode providers are request-scoped (need auth), so we resolve per-request.
+// Local mode providers are resolved once at startup.
+const localProviders: ResolvedProviders = IS_CLOUD
+  ? { tasks: null, crm: null, content: null } // initialized per-request in cloud mode
+  : resolveProviders({ dataDir: DATA_DIR });
+
+// For cloud mode, resolve providers using request-scoped read/write
+function getProviders(req?: express.Request): ResolvedProviders {
+  if (!IS_CLOUD) return localProviders;
+  // In cloud mode, resolve with cloud data functions
+  // We use a simple approach: providers always use readSyncedData/writeSyncedData
+  // which handle auth internally
+  return resolveProviders({
+    dataDir: DATA_DIR,
+    cloudReadData: async (dataType: string) => {
+      if (!req) return [];
+      return await readSyncedData(req, dataType) || [];
+    },
+    cloudWriteData: async (dataType: string, data: any) => {
+      if (!req) return;
+      await writeSyncedData(req, dataType, data);
+    },
   });
+}
+
+// Module detection — which providers are active for each slot
+app.get('/api/modules', (_req, res) => {
+  const providers = getProviders(_req);
+  res.json(getModulesResponse(providers));
 });
 
-// API — file-based endpoints (local mode only, return empty data in cloud mode)
+// API — provider-based data endpoints
 app.get('/api/tasks', async (_req, res) => {
-  if (IS_CLOUD) return res.json(await readSyncedData(_req, 'tasks') || []);
-  res.json(readJSON(p('.taskpipe', 'tasks.json')) || []);
+  const { tasks } = getProviders(_req);
+  if (!tasks) return res.json([]);
+  try { res.json(await tasks.list()); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/leads', async (_req, res) => {
-  if (IS_CLOUD) return res.json(await readSyncedData(_req, 'leads') || []);
-  res.json(readJSON(p('.leadpipe', 'leads.json')) || []);
+  const { crm } = getProviders(_req);
+  if (!crm) return res.json([]);
+  try { res.json(await crm.list()); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/content', async (_req, res) => {
-  if (IS_CLOUD) return res.json(await readSyncedData(_req, 'content') || []);
-  res.json(readJSON(p('.contentq', 'queue.json')) || []);
+  const { content } = getProviders(_req);
+  if (!content) return res.json([]);
+  try { res.json(await content.list()); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/activity', async (_req, res) => {
@@ -270,37 +302,22 @@ app.get('/api/activity', async (_req, res) => {
 
 app.get('/api/stats', async (_req, res) => {
   if (IS_CLOUD) return res.json(await readSyncedData(_req, 'stats') || { doneToday: 0, pipelineValue: 0, drafts: 0, streak: 0, stakeRisk: 0, overdueStakes: 0 });
-  const tasks = readJSON(p('.taskpipe', 'tasks.json')) || [];
-  const leads = readJSON(p('.leadpipe', 'leads.json')) || [];
-  const content = readJSON(p('.contentq', 'queue.json')) || [];
-  const patterns = readJSON(p('.taskpipe', 'patterns.json')) || { completions: [], dailyCompletions: {} };
-
-  const today = new Date().toISOString().slice(0, 10);
-  const doneToday = tasks.filter((t: any) => t.status === 'done' && t.completedAt?.startsWith(today)).length;
-  const pipelineValue = leads.filter((l: any) => !['lost'].includes(l.stage)).reduce((s: number, l: any) => s + (l.value || 0), 0);
-  const drafts = content.filter((c: any) => c.status === 'draft').length;
-
-  // Calculate streak from dailyCompletions
-  let streak = 0;
-  const d = new Date();
-  for (let i = 0; i < 365; i++) {
-    const key = d.toISOString().slice(0, 10);
-    if ((patterns.dailyCompletions?.[key] || 0) > 0) {
-      streak++;
-      d.setDate(d.getDate() - 1);
-    } else if (i === 0) {
-      d.setDate(d.getDate() - 1); // today might not have completions yet
-    } else break;
-  }
-
-  // Stakes at risk
-  const overdueTasks = tasks.filter((t: any) => t.stake && t.status !== 'done' && t.due && t.due < today);
-  const stakeRisk = overdueTasks.reduce((s: number, t: any) => {
-    const m = t.stake?.match(/€([\d,]+)/);
-    return s + (m ? parseInt(m[1].replace(',', '')) : 0);
-  }, 0);
-
-  res.json({ doneToday, pipelineValue, drafts, streak, stakeRisk, overdueStakes: overdueTasks.length });
+  const providers = getProviders(_req);
+  try {
+    const [taskStats, crmStats, contentStats] = await Promise.all([
+      providers.tasks?.stats() ?? { total: 0, doneToday: 0, overdue: 0, streak: 0, stakeRisk: 0, overdueStakes: 0 },
+      providers.crm?.stats() ?? { pipelineValue: 0 },
+      providers.content?.stats() ?? { drafts: 0 },
+    ]);
+    res.json({
+      doneToday: taskStats.doneToday,
+      pipelineValue: crmStats.pipelineValue,
+      drafts: contentStats.drafts,
+      streak: taskStats.streak ?? 0,
+      stakeRisk: taskStats.stakeRisk ?? 0,
+      overdueStakes: taskStats.overdueStakes ?? 0,
+    });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/config', async (_req, res) => {
@@ -388,93 +405,36 @@ app.use(express.json());
 app.use('/api/wf', createWorkflowRouter(getWorkflowContext, authenticateRunToken));
 
 app.post('/api/tasks', async (req, res) => {
-  const { content, energy, estimate, due, campaign, stake, tags } = req.body;
+  const { content } = req.body;
   if (!content) return res.status(400).json({ error: 'content required' });
+  const { tasks } = getProviders(req);
+  if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
   try {
-    const tasks = IS_CLOUD
-      ? ((await readSyncedData(req, 'tasks')) || [])
-      : (readJSON(p('.taskpipe', 'tasks.json')) || []);
-    const now = new Date().toISOString();
-    const task = {
-      id: crypto.randomUUID(),
-      content,
-      status: 'todo',
-      energy: energy || 'medium',
-      estimate: estimate || null,
-      due: due || null,
-      campaign: campaign || null,
-      stake: stake || null,
-      tags: tags || [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    tasks.push(task);
-    if (IS_CLOUD) {
-      await writeSyncedData(req, 'tasks', tasks);
-    } else {
-      fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(tasks, null, 2));
-    }
+    const task = await tasks.create(req.body);
     res.json(task);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Create lead
 app.post('/api/leads', async (req, res) => {
-  const { name, email, company, source, value, stage, tags } = req.body;
+  const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
+  const { crm } = getProviders(req);
+  if (!crm) return res.status(400).json({ error: 'no CRM provider' });
   try {
-    const leads = IS_CLOUD
-      ? ((await readSyncedData(req, 'leads')) || [])
-      : (readJSON(p('.leadpipe', 'leads.json')) || []);
-    const now = new Date().toISOString();
-    const lead = {
-      id: crypto.randomUUID(),
-      name,
-      email: email || null,
-      company: company || null,
-      source: source || 'other',
-      value: value || 0,
-      stage: stage || 'cold',
-      score: 0,
-      tags: tags || [],
-      touches: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    leads.push(lead);
-    if (IS_CLOUD) {
-      await writeSyncedData(req, 'leads', leads);
-    } else {
-      fs.writeFileSync(p('.leadpipe', 'leads.json'), JSON.stringify(leads, null, 2));
-    }
+    const lead = await crm.create(req.body);
     res.json(lead);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // Create content
 app.post('/api/content', async (req, res) => {
-  const { text, platform, tags } = req.body;
+  const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'text required' });
+  const { content } = getProviders(req);
+  if (!content) return res.status(400).json({ error: 'no content provider' });
   try {
-    const queue = IS_CLOUD
-      ? ((await readSyncedData(req, 'content')) || [])
-      : (readJSON(p('.contentq', 'queue.json')) || []);
-    const now = new Date().toISOString();
-    const item = {
-      id: crypto.randomUUID(),
-      text,
-      platform: platform || 'linkedin',
-      status: 'draft',
-      tags: tags || [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    queue.push(item);
-    if (IS_CLOUD) {
-      await writeSyncedData(req, 'content', queue);
-    } else {
-      fs.writeFileSync(p('.contentq', 'queue.json'), JSON.stringify(queue, null, 2));
-    }
+    const item = await content.create(req.body);
     res.json(item);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -482,58 +442,43 @@ app.post('/api/content', async (req, res) => {
 // Update task
 app.put('/api/tasks/:id', async (req, res) => {
   const { id } = req.params;
+  const { tasks } = getProviders(req);
+  if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
   try {
-    const tasks = IS_CLOUD
-      ? ((await readSyncedData(req, 'tasks')) || [])
-      : (readJSON(p('.taskpipe', 'tasks.json')) || []);
-    const task = tasks.find((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
-    if (!task) return res.status(404).json({ error: 'task not found' });
-    Object.assign(task, req.body, { updatedAt: new Date().toISOString() });
-    if (IS_CLOUD) {
-      await writeSyncedData(req, 'tasks', tasks);
-    } else {
-      fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(tasks, null, 2));
-    }
+    const task = await tasks.update(id, req.body);
     res.json(task);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) {
+    if (e.message?.includes('not found')) return res.status(404).json({ error: 'task not found' });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Update lead
 app.put('/api/leads/:id', async (req, res) => {
   const { id } = req.params;
+  const { crm } = getProviders(req);
+  if (!crm) return res.status(400).json({ error: 'no CRM provider' });
   try {
-    const leads = IS_CLOUD
-      ? ((await readSyncedData(req, 'leads')) || [])
-      : (readJSON(p('.leadpipe', 'leads.json')) || []);
-    const lead = leads.find((l: any) => id.length < 36 ? l.id.startsWith(id) : l.id === id);
-    if (!lead) return res.status(404).json({ error: 'lead not found' });
-    Object.assign(lead, req.body, { updatedAt: new Date().toISOString() });
-    if (IS_CLOUD) {
-      await writeSyncedData(req, 'leads', leads);
-    } else {
-      fs.writeFileSync(p('.leadpipe', 'leads.json'), JSON.stringify(leads, null, 2));
-    }
+    const lead = await crm.update(id, req.body);
     res.json(lead);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) {
+    if (e.message?.includes('not found')) return res.status(404).json({ error: 'lead not found' });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Update content
 app.put('/api/content/:id', async (req, res) => {
   const { id } = req.params;
+  const { content } = getProviders(req);
+  if (!content) return res.status(400).json({ error: 'no content provider' });
   try {
-    const queue = IS_CLOUD
-      ? ((await readSyncedData(req, 'content')) || [])
-      : (readJSON(p('.contentq', 'queue.json')) || []);
-    const item = queue.find((c: any) => id.length < 36 ? c.id.startsWith(id) : c.id === id);
-    if (!item) return res.status(404).json({ error: 'content not found' });
-    Object.assign(item, req.body, { updatedAt: new Date().toISOString() });
-    if (IS_CLOUD) {
-      await writeSyncedData(req, 'content', queue);
-    } else {
-      fs.writeFileSync(p('.contentq', 'queue.json'), JSON.stringify(queue, null, 2));
-    }
+    const item = await content.update(id, req.body);
     res.json(item);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) {
+    if (e.message?.includes('not found')) return res.status(404).json({ error: 'content not found' });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Move task to new status
@@ -542,9 +487,9 @@ app.post('/api/tasks/:id/move', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   if (!status) return res.status(400).json({ error: 'status required' });
-
-  try {
-    if (IS_CLOUD) {
+  // Cloud mode: use cloudReadModifyWrite for atomic sync-safe updates
+  if (IS_CLOUD) {
+    try {
       let movedTask: any = null;
       const { error } = await cloudReadModifyWrite(req, 'tasks', (tasks) => {
         const task = tasks.find((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
@@ -558,25 +503,26 @@ app.post('/api/tasks/:id/move', async (req, res) => {
       if (error === 'not found') return res.status(404).json({ error: 'task not found' });
       if (error) return res.status(500).json({ error });
       res.json(movedTask);
-    } else {
-      const tasks = readJSON(p('.taskpipe', 'tasks.json')) || [];
-      const task = tasks.find((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
-      if (!task) return res.status(404).json({ error: 'task not found' });
-      task.status = status;
-      task.updatedAt = new Date().toISOString();
-      if (status === 'done') task.completedAt = new Date().toISOString();
-      const tasksPath = p('.taskpipe', 'tasks.json');
-      fs.writeFileSync(tasksPath, JSON.stringify(tasks, null, 2));
-      res.json(task);
-    }
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    return;
+  }
+  const { tasks } = getProviders(req);
+  if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
+  try {
+    const task = await tasks.move(id, status);
+    res.json(task);
+  } catch (e: any) {
+    if (e.message?.includes('not found')) return res.status(404).json({ error: 'task not found' });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Delete task
 app.delete('/api/tasks/:id', async (req, res) => {
   const { id } = req.params;
-  try {
-    if (IS_CLOUD) {
+  // Cloud mode: use cloudReadModifyWrite for atomic sync-safe deletes with deletion tracking
+  if (IS_CLOUD) {
+    try {
       let removedTask: any = null;
       const user = await resolveUser(req);
       const { error } = await cloudReadModifyWrite(req, 'tasks', (tasks) => {
@@ -589,15 +535,18 @@ app.delete('/api/tasks/:id', async (req, res) => {
       if (error === 'not found') return res.status(404).json({ error: 'task not found' });
       if (error) return res.status(500).json({ error });
       res.json(removedTask);
-    } else {
-      const tasks = readJSON(p('.taskpipe', 'tasks.json')) || [];
-      const idx = tasks.findIndex((t: any) => id.length < 36 ? t.id.startsWith(id) : t.id === id);
-      if (idx === -1) return res.status(404).json({ error: 'task not found' });
-      const removed = tasks.splice(idx, 1)[0];
-      fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(tasks, null, 2));
-      res.json(removed);
-    }
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    return;
+  }
+  const { tasks } = getProviders(req);
+  if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
+  try {
+    await tasks.delete(id);
+    res.json({ ok: true });
+  } catch (e: any) {
+    if (e.message?.includes('not found')) return res.status(404).json({ error: 'task not found' });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Read spec/attachment file for a task
@@ -627,28 +576,28 @@ app.post('/api/tasks/reorder', async (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
 
-  try {
-    const tasks = IS_CLOUD
-      ? ((await readSyncedData(req, 'tasks')) || [])
-      : (readJSON(p('.taskpipe', 'tasks.json')) || []);
-
-    const taskMap = new Map(tasks.map((t: any) => [t.id, t]));
-    const reordered: any[] = [];
-    for (const id of ids) {
-      const task = taskMap.get(id);
-      if (task) {
-        reordered.push(task);
-        taskMap.delete(id);
+  // Cloud mode: keep existing direct Supabase logic for atomic reorder
+  if (IS_CLOUD) {
+    try {
+      const tasks = (await readSyncedData(req, 'tasks')) || [];
+      const taskMap = new Map(tasks.map((t: any) => [t.id, t]));
+      const reordered: any[] = [];
+      for (const id of ids) {
+        const task = taskMap.get(id);
+        if (task) { reordered.push(task); taskMap.delete(id); }
       }
-    }
-    for (const task of taskMap.values()) {
-      reordered.push(task);
-    }
-
-    if (IS_CLOUD) {
+      for (const task of taskMap.values()) reordered.push(task);
       await writeSyncedData(req, 'tasks', reordered);
-    } else {
-      fs.writeFileSync(p('.taskpipe', 'tasks.json'), JSON.stringify(reordered, null, 2));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    return;
+  }
+
+  const { tasks } = getProviders(req);
+  if (!tasks) return res.status(400).json({ error: 'no tasks provider' });
+  try {
+    if (tasks.reorder) {
+      await tasks.reorder(ids);
     }
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -660,33 +609,35 @@ app.post('/api/leads/:id/move', async (req, res) => {
   const { id } = req.params;
   const { stage } = req.body;
   if (!stage) return res.status(400).json({ error: 'stage required' });
-  console.log(`[move-lead] id=${id} → stage=${stage}`);
 
-  try {
-    if (IS_CLOUD) {
+  // Cloud mode: use cloudReadModifyWrite for atomic sync-safe updates
+  if (IS_CLOUD) {
+    try {
       let movedLead: any = null;
       const { error } = await cloudReadModifyWrite(req, 'leads', (leads) => {
         const lead = leads.find((l: any) => id.length < 36 ? l.id.startsWith(id) : l.id === id);
-        if (!lead) { console.log(`[move-lead] lead not found in ${leads.length} leads`); return null; }
+        if (!lead) return null;
         lead.stage = stage;
         lead.updatedAt = new Date().toISOString();
         movedLead = lead;
         return leads;
       });
-      if (error === 'not found') { console.log(`[move-lead] ERROR: not found`); return res.status(404).json({ error: 'lead not found' }); }
-      if (error) { console.log(`[move-lead] ERROR: ${error}`); return res.status(500).json({ error }); }
-      console.log(`[move-lead] SUCCESS: ${movedLead?.name} → ${movedLead?.stage}`);
+      if (error === 'not found') return res.status(404).json({ error: 'lead not found' });
+      if (error) return res.status(500).json({ error });
       res.json(movedLead);
-    } else {
-      const leads = readJSON(p('.leadpipe', 'leads.json')) || [];
-      const lead = leads.find((l: any) => id.length < 36 ? l.id.startsWith(id) : l.id === id);
-      if (!lead) return res.status(404).json({ error: 'lead not found' });
-      lead.stage = stage;
-      lead.updatedAt = new Date().toISOString();
-      fs.writeFileSync(p('.leadpipe', 'leads.json'), JSON.stringify(leads, null, 2));
-      res.json(lead);
-    }
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    return;
+  }
+
+  const { crm } = getProviders(req);
+  if (!crm) return res.status(400).json({ error: 'no CRM provider' });
+  try {
+    const lead = await crm.move(id, stage);
+    res.json(lead);
+  } catch (e: any) {
+    if (e.message?.includes('not found')) return res.status(404).json({ error: 'lead not found' });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // General CLI helper for local commands (gog, codexbar, etc.)
@@ -1450,10 +1401,14 @@ if (IS_CLOUD && SYNC_SECRET) {
               added++;
             }
 
-            if (added > 0) {
-              console.log(`[sync] ${dt}: added ${added} new items from local`);
+            if (added === 0) {
+              // Nothing new from local — do NOT write back to cloud at all.
+              // This prevents any possibility of the sync overwriting cloud edits.
+              synced++;
+              continue;
             }
 
+            console.log(`[sync] ${dt}: adding ${added} new items from local`);
             const { error: writeErr } = await supabase.from('workspace_data').upsert({
               workspace_id: workspaceId,
               data_type: dt,
