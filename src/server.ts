@@ -460,6 +460,22 @@ app.post('/api/hyperfokus/tasks', async (req, res) => {
   }
 });
 
+app.get('/api/hyperfokus/tasks/:taskId', async (req, res) => {
+  const hfConfig = await getHyperFokusConfig(req);
+  if (!hfConfig) return res.status(400).json({ error: 'HyperFokus not configured' });
+  try {
+    const apiUrl = hfConfig.url.replace(/\/$/, '');
+    const response = await fetch(`${apiUrl}/api/tasks/${req.params.taskId}`, {
+      headers: { 'Authorization': `Bearer ${hfConfig.apiKey}` },
+    });
+    const data = await response.json();
+    if (!response.ok) return res.status(response.status).json(data);
+    res.json(data);
+  } catch (e: any) {
+    res.status(502).json({ error: `HyperFokus unreachable: ${e.message}` });
+  }
+});
+
 app.get('/api/hyperfokus/test', async (req, res) => {
   const hfConfig = await getHyperFokusConfig(req);
   if (!hfConfig) return res.json({ ok: false, error: 'HyperFokus not configured' });

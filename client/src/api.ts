@@ -252,5 +252,8 @@ export const sendToHyperFokus = (body: Record<string, any>): Promise<any> =>
       return r.json();
     });
 
+export const getHyperFokusTask = (hfTaskId: string): Promise<any> =>
+  apiFetch(`/api/hyperfokus/tasks/${hfTaskId}`).then(json);
+
 export const testHyperFokusConnection = (): Promise<{ ok: boolean; user?: string; error?: string }> =>
   apiFetch('/api/hyperfokus/test').then(json);

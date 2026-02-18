@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -196,8 +196,24 @@ function TaskDialog({ task, open, onClose, onSave, onDelete }: {
   );
 }
 
-function DroppableColumn({ id, label, count, color, children }: { id: string; label: string; count: number; color: string; children: React.ReactNode }) {
+function DroppableColumn({ id, label, count, color, collapsed, onToggle, children }: { id: string; label: string; count: number; color: string; collapsed?: boolean; onToggle?: () => void; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
+  if (collapsed) {
+    return (
+      <div ref={setNodeRef} className={`rounded-xl p-3 min-h-[300px] transition-all duration-200 flex flex-col items-center ${isOver ? 'ring-1' : ''}`}
+        style={{
+          background: isOver ? accentAlpha(0.04) : zincAlpha(0.03),
+          ...(isOver ? { ringColor: accentAlpha(0.2) } : {}),
+          minWidth: 0, maxWidth: 48,
+        }}>
+        <button onClick={onToggle} className="flex flex-col items-center gap-2 py-2 text-muted-foreground/60 hover:text-muted-foreground transition-colors" aria-label={`Expand ${label}`}>
+          <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+          <span className="text-[10px] font-semibold tracking-wide" style={{ writingMode: 'vertical-lr' }}>{label}</span>
+          <span className="text-[10px] bg-white/[0.06] px-1.5 py-0.5 rounded-full font-mono">{count}</span>
+        </button>
+      </div>
+    );
+  }
   return (
     <div ref={setNodeRef} className={`rounded-xl p-3 min-h-[300px] transition-all duration-200 ${isOver ? 'ring-1' : ''}`}
       style={{
@@ -206,8 +222,10 @@ function DroppableColumn({ id, label, count, color, children }: { id: string; la
       }}>
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full" style={{ background: color }} />
-          <span className="text-sm font-semibold text-muted-foreground tracking-wide">{label}</span>
+          <button onClick={onToggle} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors" aria-label={`Collapse ${label}`}>
+            <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+            <span className="text-sm font-semibold tracking-wide">{label}</span>
+          </button>
         </div>
         <span className="text-[11px] bg-white/[0.06] px-2 py-0.5 rounded-full text-muted-foreground font-mono">{count}</span>
       </div>
@@ -220,9 +238,57 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [sentToHf, setSentToHf] = useState<Map<string, { timestamp: string; title: string }>>(new Map());
+  const [sentToHf, setSentToHf] = useState<Map<string, { timestamp: string; title: string; hfTaskId?: string; hfStatus?: string; originalTask?: Task }>>(new Map());
+  const [collapsedCols, setCollapsedCols] = useState<Set<string>>(new Set());
+  const toggleCollapse = useCallback((key: string) => {
+    setCollapsedCols(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  }, []);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // Poll HyperFokus for status of in-flight tasks every 60s
+  const pollHfStatuses = useCallback(async () => {
+    const entries = Array.from(sentToHf.entries()).filter(([, info]) => info.hfTaskId && info.hfStatus !== 'completed');
+    if (entries.length === 0) return;
+    for (const [obId, info] of entries) {
+      try {
+        const hfTask = await api.getHyperFokusTask(info.hfTaskId!);
+        if (hfTask.status === 'completed') {
+          // Move original task to Done in OpenBrain
+          if (info.originalTask) {
+            setState(prev => ({
+              ...prev,
+              tasks: [...prev.tasks, { ...info.originalTask!, status: 'done' as Task['status'] }],
+            }));
+            try { await api.moveTask(obId, 'done'); } catch {}
+          }
+          // Remove from HF column after a short delay
+          setTimeout(() => {
+            setSentToHf(prev => { const next = new Map(prev); next.delete(obId); return next; });
+          }, 3000);
+          setSentToHf(prev => {
+            const next = new Map(prev);
+            next.set(obId, { ...info, hfStatus: 'completed' });
+            return next;
+          });
+          notify(`✅ "${info.title}" completed in HyperFokus`);
+        } else if (hfTask.status !== info.hfStatus) {
+          setSentToHf(prev => {
+            const next = new Map(prev);
+            next.set(obId, { ...info, hfStatus: hfTask.status });
+            return next;
+          });
+        }
+      } catch {}
+    }
+  }, [sentToHf, setState, notify]);
+
+  useEffect(() => {
+    const hasInflight = Array.from(sentToHf.values()).some(info => info.hfTaskId && info.hfStatus !== 'completed');
+    if (!hasInflight) return;
+    const interval = setInterval(pollHfStatuses, 60_000);
+    return () => clearInterval(interval);
+  }, [sentToHf, pollHfStatuses]);
 
   const handleDragStart = (e: DragStartEvent) => setActiveId(e.active.id as string);
 
@@ -250,17 +316,34 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
 
     // HyperFokus column: send task via API, don't move in kanban
     if (task && targetColumn === 'hyperfokus') {
-      notify('⏳ Sending to HyperFokus…');
+      // Optimistically move task out of kanban into HF column
+      setState(prev => ({
+        ...prev,
+        tasks: prev.tasks.filter(t => t.id !== taskId),
+      }));
+      setSentToHf(prev => {
+        const next = new Map(prev);
+        next.set(taskId, { timestamp: new Date().toISOString(), title: task.content, hfStatus: 'sending', originalTask: task });
+        return next;
+      });
       try {
         const hfPayload = transformTaskForHyperFokus(task);
-        await api.sendToHyperFokus(hfPayload);
+        const hfResult = await api.sendToHyperFokus(hfPayload);
         setSentToHf(prev => {
           const next = new Map(prev);
-          next.set(taskId, { timestamp: new Date().toISOString(), title: task.content });
+          const entry = next.get(taskId);
+          if (entry) next.set(taskId, { ...entry, hfTaskId: hfResult.id, hfStatus: hfResult.status || 'next' });
           return next;
         });
         notify(`✅ "${task.content}" sent to HyperFokus`);
       } catch (err: any) {
+        // Revert: put task back into kanban
+        setState(prev => ({ ...prev, tasks: [...prev.tasks, task] }));
+        setSentToHf(prev => {
+          const next = new Map(prev);
+          next.delete(taskId);
+          return next;
+        });
         const msg = err?.message || 'unknown error';
         notify(`❌ Failed to send to HyperFokus: ${msg}`);
       }
@@ -321,7 +404,7 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
       <TaskDialog task={editTask} open={dialogOpen} onClose={() => setDialogOpen(false)} onSave={handleSave} onDelete={handleDelete} />
 
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid gap-4" style={{ gridTemplateColumns: DISPLAY_COLUMNS.map(c => collapsedCols.has(c.key) ? '48px' : '1fr').join(' ') }}>
           {DISPLAY_COLUMNS.map(col => {
             const isHf = (col as any).isExternal;
             if (isHf) {
@@ -329,21 +412,30 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
               const hfEntries = Array.from(sentToHf.entries())
                 .sort(([, a], [, b]) => b.timestamp.localeCompare(a.timestamp));
               return (
-                <DroppableColumn key={col.key} id={col.key} label={col.label} count={hfEntries.length} color={col.color}>
+                <DroppableColumn key={col.key} id={col.key} label={col.label} count={hfEntries.length} color={col.color} collapsed={collapsedCols.has(col.key)} onToggle={() => toggleCollapse(col.key)}>
                   <SortableContext items={[]} strategy={verticalListSortingStrategy}>
                     {hfEntries.length === 0 ? (
                       <p className="text-xs text-muted-foreground/50 text-center py-6">
                         Drag tasks here to send to HyperFokus
                       </p>
                     ) : (
-                      hfEntries.map(([id, info]) => (
-                        <div key={id} className="rounded-xl p-3 text-sm opacity-60" style={{ background: 'rgba(99,102,241,0.05)' }}>
-                          <div className="font-medium text-muted-foreground">{info.title}</div>
-                          <div className="text-[10px] text-muted-foreground/60 mt-1 font-mono">
-                            Sent {info.timestamp.slice(11, 16)}
+                      hfEntries.map(([id, info]) => {
+                        const isCompleted = info.hfStatus === 'completed';
+                        const statusLabel = info.hfStatus === 'focus' ? '🔴 In Focus'
+                          : info.hfStatus === 'completed' ? '✓ Done'
+                          : info.hfStatus === 'sending' ? '⏳ Sending…'
+                          : info.hfStatus === 'next' ? 'Next'
+                          : info.hfStatus || 'Sent';
+                        return (
+                          <div key={id} className={`rounded-xl p-3 text-sm ${isCompleted ? 'opacity-30' : 'opacity-60'}`} style={{ background: isCompleted ? 'rgba(34,197,94,0.05)' : 'rgba(99,102,241,0.05)' }}>
+                            <div className="font-medium text-muted-foreground">{info.title}</div>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-[10px] text-muted-foreground/60 font-mono">{statusLabel}</span>
+                              <span className="text-[10px] text-muted-foreground/40 font-mono">{info.timestamp.slice(11, 16)}</span>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </SortableContext>
                 </DroppableColumn>
@@ -351,7 +443,7 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
             }
             const colTasks = tasks.filter(t => t.status === col.key || ((col as any).also || []).includes(t.status));
             return (
-              <DroppableColumn key={col.key} id={col.key} label={col.label} count={colTasks.length} color={col.color}>
+              <DroppableColumn key={col.key} id={col.key} label={col.label} count={colTasks.length} color={col.color} collapsed={collapsedCols.has(col.key)} onToggle={() => toggleCollapse(col.key)}>
                 <SortableContext items={colTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
                   {colTasks.map(task => (
                     <TaskCard key={task.id} task={task} hfSent={sentToHf.has(task.id)} onClick={() => { setEditTask(task); setDialogOpen(true); }} />
