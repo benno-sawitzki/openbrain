@@ -23,6 +23,7 @@ import {
   fetchApiKey,
   generateApiKey,
   revokeApiKey,
+  testHyperFokusConnection,
 } from '../api';
 
 /* ── Types ── */
@@ -186,6 +187,12 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
   const [generatingKey, setGeneratingKey] = useState(false);
   const [revokingKey, setRevokingKey] = useState(false);
 
+  // HyperFokus integration
+  const [hfUrl, setHfUrl] = useState('');
+  const [hfApiKey, setHfApiKey] = useState('');
+  const [hfTestResult, setHfTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [hfTesting, setHfTesting] = useState(false);
+
   // Danger Zone
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -210,6 +217,11 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
       .then(([reg, config]) => {
         setRegistry(reg);
         setProviderConfig(config || {});
+        // Load HyperFokus config
+        if (config?.hyperfokus) {
+          setHfUrl(config.hyperfokus.url || '');
+          setHfApiKey(config.hyperfokus.api_key || '');
+        }
       })
       .catch(e => console.error('Failed to load provider config', e));
   }, []);
@@ -323,6 +335,56 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
       navigator.clipboard.writeText(newKey);
       notify('API key copied to clipboard');
     }
+  };
+
+  const handleTestHyperFokus = async () => {
+    setHfTesting(true);
+    setHfTestResult(null);
+    // Save current values first so the server-side test uses them
+    try {
+      await saveProviderConfig({
+        ...providerConfig,
+        hyperfokus: { url: hfUrl || 'https://api.hyperfok.us', api_key: hfApiKey },
+      });
+    } catch {
+      setHfTestResult({ ok: false, message: 'Failed to save config before testing' });
+      setHfTesting(false);
+      return;
+    }
+    try {
+      const result = await testHyperFokusConnection();
+      setHfTestResult({
+        ok: result.ok,
+        message: result.ok ? `Connected (${result.user})` : (result.error || 'Failed'),
+      });
+    } catch {
+      setHfTestResult({ ok: false, message: 'Connection failed' });
+    }
+    setHfTesting(false);
+  };
+
+  const handleSaveHyperFokus = async () => {
+    // Merge into providerConfig and save
+    const updated = {
+      ...providerConfig,
+      hyperfokus: {
+        url: hfUrl || 'https://api.hyperfok.us',
+        api_key: hfApiKey,
+      },
+    };
+    setSavingProviders(true);
+    try {
+      const result = await saveProviderConfig(updated);
+      if (result.ok) {
+        setProviderConfig(updated);
+        notify('HyperFokus config saved');
+      } else {
+        notify('Failed to save: ' + (result.error || 'unknown error'));
+      }
+    } catch {
+      notify('Failed to save HyperFokus config');
+    }
+    setSavingProviders(false);
   };
 
   const handleChangePassword = async () => {
@@ -613,6 +675,70 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
           </div>
         </div>
       )}
+
+      {/* ── HyperFokus Integration ── */}
+      <div className="glass-card rounded-xl p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span className="w-1 h-5 rounded-full" style={{ background: '#6366F1' }} />
+          HyperFokus
+        </h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          Connect to HyperFokus to send tasks for deep focus sessions.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs text-muted-foreground uppercase">HyperFokus URL</Label>
+            <Input
+              className="mt-1.5"
+              value={hfUrl}
+              onChange={e => setHfUrl(e.target.value)}
+              placeholder="https://api.hyperfok.us"
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground uppercase">API Key</Label>
+            <Input
+              className="mt-1.5"
+              type="password"
+              value={hfApiKey}
+              onChange={e => setHfApiKey(e.target.value)}
+              placeholder="hf_..."
+            />
+          </div>
+          <div className="flex items-center gap-3 pt-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="rounded-lg"
+              disabled={hfTesting || !hfApiKey}
+              onClick={handleTestHyperFokus}
+            >
+              {hfTesting ? 'Testing...' : 'Test Connection'}
+            </Button>
+            <Button
+              size="sm"
+              className="rounded-lg font-semibold"
+              style={{ background: '#6366F1', color: '#fff' }}
+              disabled={savingProviders || !hfApiKey}
+              onClick={handleSaveHyperFokus}
+            >
+              {savingProviders ? 'Saving...' : 'Save'}
+            </Button>
+            {hfTestResult && (
+              <span
+                className="text-xs font-medium px-2 py-1 rounded"
+                style={{
+                  background: hfTestResult.ok ? status.success.bg : status.error.bg,
+                  color: hfTestResult.ok ? status.success.color : status.error.color,
+                  border: `1px solid ${hfTestResult.ok ? status.success.border : status.error.border}`,
+                }}
+              >
+                {hfTestResult.message}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* ── Section 3: Workspace (cloud mode only) ── */}
       {auth.isCloudMode && (

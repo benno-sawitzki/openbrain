@@ -16,12 +16,35 @@ const DISPLAY_COLUMNS = [
   { key: 'todo', label: 'To Do', color: palette.muted },
   { key: 'in_progress', label: 'In Progress', also: ['doing'], color: palette.accent },
   { key: 'done', label: 'Done', color: palette.subtle },
+  { key: 'hyperfokus', label: 'HyperFokus', color: '#6366F1', isExternal: true },
 ];
 
 const energyEmoji = (e?: string) => ({ high: '⚡', medium: '🔋', low: '🪫' }[e || 'medium'] || '🔋');
 const today = () => new Date().toISOString().slice(0, 10);
 
-function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
+const DIFFICULTY_TO_IMPAKT: Record<string, string> = { hard: 'high', medium: 'medium', easy: 'low' };
+
+function transformTaskForHyperFokus(task: Task): Record<string, any> {
+  // Build description from tags, campaign, stake, notes
+  const descParts: string[] = [];
+  if (task.campaign) descParts.push(`Campaign: ${task.campaign}`);
+  if (task.stake) descParts.push(`Stakes: ${task.stake}`);
+  if (task.tags?.length) descParts.push(`Tags: ${task.tags.join(', ')}`);
+  if ((task as any).notes?.length) descParts.push((task as any).notes.join('\n'));
+
+  return {
+    title: task.content,
+    description: descParts.join('\n') || undefined,
+    energy_required: task.energy || 'medium',
+    duration: task.estimate || 30,
+    scheduled_date: task.due || undefined,
+    impakt: DIFFICULTY_TO_IMPAKT[(task as any).difficulty || ''] || 'medium',
+    priority: 2,
+    status: 'next',
+  };
+}
+
+function TaskCard({ task, onClick, hfSent }: { task: Task; onClick: () => void; hfSent?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   const overdue = task.due && task.due < today() && task.status !== 'done';
@@ -33,6 +56,11 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
     >
       <div className="flex items-start gap-2 text-sm">
         <span className="font-medium leading-snug">{task.content}</span>
+        {hfSent && (
+          <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>
+            HF
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap gap-1.5 mt-2.5 text-[11px] text-muted-foreground">
         <span>{energyEmoji(task.energy)} {task.energy || 'medium'}</span>
@@ -192,6 +220,7 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [sentToHf, setSentToHf] = useState<Map<string, { timestamp: string; title: string }>>(new Map());
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -218,6 +247,25 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
 
     const task = tasks.find(t => t.id === taskId);
     const currentCol = task ? DISPLAY_COLUMNS.find(c => c.key === task.status || ((c as any).also || []).includes(task.status))?.key : null;
+
+    // HyperFokus column: send task via API, don't move in kanban
+    if (task && targetColumn === 'hyperfokus') {
+      notify('⏳ Sending to HyperFokus…');
+      try {
+        const hfPayload = transformTaskForHyperFokus(task);
+        await api.sendToHyperFokus(hfPayload);
+        setSentToHf(prev => {
+          const next = new Map(prev);
+          next.set(taskId, { timestamp: new Date().toISOString(), title: task.content });
+          return next;
+        });
+        notify(`✅ "${task.content}" sent to HyperFokus`);
+      } catch (err: any) {
+        const msg = err?.message || 'unknown error';
+        notify(`❌ Failed to send to HyperFokus: ${msg}`);
+      }
+      return;
+    }
 
     if (task && currentCol !== targetColumn) {
       setState(prev => ({
@@ -273,14 +321,40 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
       <TaskDialog task={editTask} open={dialogOpen} onClose={() => setDialogOpen(false)} onSave={handleSave} onDelete={handleDelete} />
 
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           {DISPLAY_COLUMNS.map(col => {
+            const isHf = (col as any).isExternal;
+            if (isHf) {
+              // HyperFokus column: shows recently sent tasks
+              const hfEntries = Array.from(sentToHf.entries())
+                .sort(([, a], [, b]) => b.timestamp.localeCompare(a.timestamp));
+              return (
+                <DroppableColumn key={col.key} id={col.key} label={col.label} count={hfEntries.length} color={col.color}>
+                  <SortableContext items={[]} strategy={verticalListSortingStrategy}>
+                    {hfEntries.length === 0 ? (
+                      <p className="text-xs text-muted-foreground/50 text-center py-6">
+                        Drag tasks here to send to HyperFokus
+                      </p>
+                    ) : (
+                      hfEntries.map(([id, info]) => (
+                        <div key={id} className="rounded-xl p-3 text-sm opacity-60" style={{ background: 'rgba(99,102,241,0.05)' }}>
+                          <div className="font-medium text-muted-foreground">{info.title}</div>
+                          <div className="text-[10px] text-muted-foreground/60 mt-1 font-mono">
+                            Sent {info.timestamp.slice(11, 16)}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </SortableContext>
+                </DroppableColumn>
+              );
+            }
             const colTasks = tasks.filter(t => t.status === col.key || ((col as any).also || []).includes(t.status));
             return (
               <DroppableColumn key={col.key} id={col.key} label={col.label} count={colTasks.length} color={col.color}>
                 <SortableContext items={colTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
                   {colTasks.map(task => (
-                    <TaskCard key={task.id} task={task} onClick={() => { setEditTask(task); setDialogOpen(true); }} />
+                    <TaskCard key={task.id} task={task} hfSent={sentToHf.has(task.id)} onClick={() => { setEditTask(task); setDialogOpen(true); }} />
                   ))}
                 </SortableContext>
               </DroppableColumn>

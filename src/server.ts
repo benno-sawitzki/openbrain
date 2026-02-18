@@ -416,6 +416,68 @@ app.post('/api/provider-config/test', async (req, res) => {
   }
 });
 
+// ── HyperFokus proxy endpoints ──────────────────────────────────────────────
+// Keeps the HyperFokus API key server-side (never exposed to browser).
+
+async function getHyperFokusConfig(req: express.Request): Promise<{ url: string; apiKey: string } | null> {
+  if (IS_CLOUD) {
+    const data = await readSyncedData(req, 'provider_config');
+    const hf = data?.hyperfokus;
+    if (hf?.api_key && hf?.url) return { url: hf.url, apiKey: hf.api_key };
+    return null;
+  }
+  // Local mode: read from openbrain.yaml
+  const configPath = path.join(DATA_DIR, '..', 'openbrain.yaml');
+  try {
+    if (fs.existsSync(configPath)) {
+      const parsed = yaml.load(fs.readFileSync(configPath, 'utf-8')) as any;
+      const hf = parsed?.hyperfokus;
+      if (hf?.api_key && hf?.url) return { url: hf.url, apiKey: hf.api_key };
+    }
+  } catch {}
+  return null;
+}
+
+app.post('/api/hyperfokus/tasks', async (req, res) => {
+  const hfConfig = await getHyperFokusConfig(req);
+  if (!hfConfig) return res.status(400).json({ error: 'HyperFokus not configured — add URL and API key in Settings' });
+  try {
+    const apiUrl = hfConfig.url.replace(/\/$/, '');
+    const response = await fetch(`${apiUrl}/api/tasks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${hfConfig.apiKey}`,
+      },
+      body: JSON.stringify(req.body),
+    });
+    const data = await response.json();
+    if (!response.ok) return res.status(response.status).json(data);
+    res.json(data);
+  } catch (e: any) {
+    res.status(502).json({ error: `HyperFokus unreachable: ${e.message}` });
+  }
+});
+
+app.get('/api/hyperfokus/test', async (req, res) => {
+  const hfConfig = await getHyperFokusConfig(req);
+  if (!hfConfig) return res.json({ ok: false, error: 'HyperFokus not configured' });
+  try {
+    const apiUrl = hfConfig.url.replace(/\/$/, '');
+    const response = await fetch(`${apiUrl}/api/auth/me`, {
+      headers: { 'Authorization': `Bearer ${hfConfig.apiKey}` },
+    });
+    if (response.ok) {
+      const data = await response.json();
+      res.json({ ok: true, user: data.email || data.name || 'connected' });
+    } else {
+      res.json({ ok: false, error: `HTTP ${response.status}` });
+    }
+  } catch (e: any) {
+    res.json({ ok: false, error: e.message });
+  }
+});
+
 // API — provider-based data endpoints
 app.get('/api/tasks', async (_req, res) => {
   const { tasks } = await getProviders(_req);

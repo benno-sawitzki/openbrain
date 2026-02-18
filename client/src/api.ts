@@ -243,3 +243,14 @@ export const generateApiKey = (): Promise<{ key: string }> =>
 
 export const revokeApiKey = (): Promise<{ ok: boolean }> =>
   apiFetch('/api/keys', { method: 'DELETE' }).then(json);
+
+// HyperFokus integration
+export const sendToHyperFokus = (body: Record<string, any>): Promise<any> =>
+  apiFetch('/api/hyperfokus/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(r => {
+      if (!r.ok) return r.json().then(e => Promise.reject(new Error(e?.error || e?.detail || r.statusText)));
+      return r.json();
+    });
+
+export const testHyperFokusConnection = (): Promise<{ ok: boolean; user?: string; error?: string }> =>
+  apiFetch('/api/hyperfokus/test').then(json);
