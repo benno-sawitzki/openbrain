@@ -33,6 +33,7 @@ try {
 } catch {}
 
 const app = express();
+app.use(express.json());
 const PORT = parseInt(process.env.MARKETING_HQ_PORT || '4000', 10);
 const SERVER_START = Date.now();
 
@@ -687,9 +688,8 @@ function parseWorkflows(output: string): any[] {
 }
 
 // Create task
-app.use(express.json());
 
-// Mount workflow router (needs JSON parsing from above)
+// Mount workflow router
 app.use('/api/wf', createWorkflowRouter(getWorkflowContext, authenticateRunToken));
 
 app.post('/api/tasks', async (req, res) => {
