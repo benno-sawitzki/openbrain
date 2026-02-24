@@ -491,7 +491,7 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
 
   const lastSync = syncStatus?.latest || '';
   const syncAgeMs = lastSync ? Date.now() - new Date(lastSync).getTime() : Infinity;
-  const connected = syncAgeMs < 120_000; // Green if synced within 2 minutes
+  const recentlyActive = syncAgeMs < 120_000;
   const syncTypeCount = syncStatus?.types ? Object.keys(syncStatus.types).length : 0;
   const syncIntervalMs: number | null = syncStatus?.intervalMs ?? null;
   const syncIntervalLabel = syncIntervalMs
@@ -826,14 +826,14 @@ export function SettingsTab({ auth, notify, onRefresh }: Props) {
           </h2>
 
           <div className="space-y-4">
-            {/* Connected indicator */}
+            {/* Sync activity indicator */}
             <div className="flex items-center gap-3">
               <span
                 className="inline-block w-2 h-2 rounded-full"
-                style={{ background: connected ? '#22C55E' : '#EF4444' }}
+                style={{ background: recentlyActive ? '#22C55E' : '#71717A' }}
               />
               <span className="text-sm font-semibold">
-                {connected ? 'Connected' : 'Disconnected'}
+                {recentlyActive ? 'Active' : 'Idle'}
               </span>
               {lastSync && (
                 <span className="text-xs text-muted-foreground">
