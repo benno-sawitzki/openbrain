@@ -90,6 +90,21 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
 
+  // Track optimistic status overrides so polling doesn't revert drag-and-drop moves.
+  // Map of item id → { field, value, expiresAt } — kept for 10s after the move.
+  const optimisticRef = useRef<Map<string, { field: string; value: string; expiresAt: number }>>(new Map());
+
+  // Wrap setState so callers can mark optimistic overrides
+  const setStateOptimistic = useCallback((updater: React.SetStateAction<AppState>, overrides?: { id: string; field: string; value: string }[]) => {
+    if (overrides) {
+      const now = Date.now();
+      for (const o of overrides) {
+        optimisticRef.current.set(o.id, { field: o.field, value: o.value, expiresAt: now + 10000 });
+      }
+    }
+    setState(updater);
+  }, []);
+
   // Use a ref so refresh() always reads current modules without depending on them
   const modulesRef = useRef(modules);
   modulesRef.current = modules;
@@ -97,6 +112,25 @@ export default function App() {
   const refresh = useCallback(async (mods?: Modules) => {
     try {
       const data = await fetchAll(mods ?? modulesRef.current);
+      // Preserve any in-flight optimistic overrides so polling doesn't revert drag-and-drop
+      const now = Date.now();
+      const pending = optimisticRef.current;
+      // Clean expired entries
+      for (const [id, entry] of pending) {
+        if (entry.expiresAt < now) pending.delete(id);
+      }
+      if (pending.size > 0) {
+        data.tasks = data.tasks.map(t => {
+          const o = pending.get(t.id);
+          if (o && o.field === 'status') return { ...t, status: o.value as any };
+          return t;
+        });
+        data.leads = data.leads.map(l => {
+          const o = pending.get(l.id);
+          if (o && o.field === 'stage') return { ...l, stage: o.value };
+          return l;
+        });
+      }
       setState(data);
     } catch (e) {
       console.error('Failed to fetch data', e);
@@ -311,8 +345,8 @@ export default function App() {
       {/* Content with entrance animation */}
       <main className="p-6 max-w-[1600px] mx-auto animate-fade-up" key={tab}>
         {tab === 'dashboard' && <DashboardTab state={state} onRefresh={refresh} notify={notify} modules={modules} />}
-        {tab === 'tasks' && <TasksTab tasks={state.tasks} onRefresh={refresh} notify={notify} setState={setState} />}
-        {tab === 'pipeline' && <PipelineTab leads={state.leads} onRefresh={refresh} notify={notify} setState={setState} />}
+        {tab === 'tasks' && <TasksTab tasks={state.tasks} onRefresh={refresh} notify={notify} setState={setStateOptimistic} />}
+        {tab === 'pipeline' && <PipelineTab leads={state.leads} onRefresh={refresh} notify={notify} setState={setStateOptimistic} />}
         {tab === 'content' && <ContentTab content={state.content} inbox={state.inbox} onRefresh={refresh} notify={notify} />}
         {tab === 'calendar' && <CalendarTab />}
         {tab === 'workflows' && <WorkflowsTab notify={notify} />}

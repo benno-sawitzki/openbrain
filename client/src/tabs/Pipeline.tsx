@@ -157,7 +157,7 @@ function DroppableStage({ id, count, total, children }: { id: string; count: num
   );
 }
 
-export function PipelineTab({ leads, onRefresh, notify, setState }: { leads: Lead[]; onRefresh: () => void; notify: (m: string) => void; setState: React.Dispatch<React.SetStateAction<AppState>> }) {
+export function PipelineTab({ leads, onRefresh, notify, setState }: { leads: Lead[]; onRefresh: () => void; notify: (m: string) => void; setState: (updater: React.SetStateAction<AppState>, overrides?: { id: string; field: string; value: string }[]) => void }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editLead, setEditLead] = useState<Lead | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -191,7 +191,7 @@ export function PipelineTab({ leads, onRefresh, notify, setState }: { leads: Lea
       setState(prev => ({
         ...prev,
         leads: prev.leads.map(l => l.id === leadId ? { ...l, stage: targetStage } : l),
-      }));
+      }), [{ id: leadId, field: 'stage', value: targetStage }]);
       notify(`\u2705 ${lead.name} moved to ${targetStage}`);
       try { await api.moveLead(leadId, targetStage); }
       catch { notify('\u274C Failed \u2014 reverting'); onRefresh(); }

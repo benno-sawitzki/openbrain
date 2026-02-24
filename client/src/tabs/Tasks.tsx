@@ -234,7 +234,7 @@ function DroppableColumn({ id, label, count, color, collapsed, onToggle, childre
   );
 }
 
-export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]; onRefresh: () => void; notify: (m: string) => void; setState: React.Dispatch<React.SetStateAction<AppState>> }) {
+export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]; onRefresh: () => void; notify: (m: string) => void; setState: (updater: React.SetStateAction<AppState>, overrides?: { id: string; field: string; value: string }[]) => void }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -354,7 +354,7 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
       setState(prev => ({
         ...prev,
         tasks: prev.tasks.map(t => t.id === taskId ? { ...t, status: targetColumn as Task['status'] } : t),
-      }));
+      }), [{ id: taskId, field: 'status', value: targetColumn }]);
       const colLabel = DISPLAY_COLUMNS.find(c => c.key === targetColumn)?.label || targetColumn;
       notify(`✅ Task moved to ${colLabel}`);
       try {
