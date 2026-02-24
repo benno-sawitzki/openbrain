@@ -934,6 +934,87 @@ app.get('/api/tasks/:id/spec', (req, res) => {
   res.json({ links, specs });
 });
 
+// Archive done tasks — moves done tasks from 'tasks' to 'archived_tasks'
+app.post('/api/tasks/archive', async (req, res) => {
+  if (IS_CLOUD) {
+    try {
+      const user = await resolveUser(req);
+      if (!user) return res.status(401).json({ error: 'unauthorized' });
+      const now = new Date().toISOString();
+      let archivedCount = 0;
+
+      await withWriteLock(`sync:${user.workspaceId}`, async () => {
+        // Read current tasks
+        const { data: tasksRow } = await supabase!
+          .from('workspace_data').select('data')
+          .eq('workspace_id', user.workspaceId).eq('data_type', 'tasks').single();
+        const tasks: any[] = tasksRow?.data || [];
+
+        // Split into active and done
+        const active: any[] = [];
+        const done: any[] = [];
+        for (const t of tasks) {
+          if (t.status === 'done') {
+            done.push({ ...t, archivedAt: now });
+          } else {
+            active.push(t);
+          }
+        }
+        archivedCount = done.length;
+        if (archivedCount === 0) return;
+
+        // Read existing archive and append
+        const { data: archiveRow } = await supabase!
+          .from('workspace_data').select('data')
+          .eq('workspace_id', user.workspaceId).eq('data_type', 'archived_tasks').single();
+        const archive: any[] = archiveRow?.data || [];
+        archive.push(...done);
+
+        // Write both atomically
+        await supabase!.from('workspace_data').upsert({
+          workspace_id: user.workspaceId, data_type: 'tasks',
+          data: active, synced_at: now,
+        }, { onConflict: 'workspace_id,data_type' });
+        await supabase!.from('workspace_data').upsert({
+          workspace_id: user.workspaceId, data_type: 'archived_tasks',
+          data: archive, synced_at: now,
+        }, { onConflict: 'workspace_id,data_type' });
+      });
+
+      res.json({ ok: true, archived: archivedCount });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    return;
+  }
+  // Local mode: move done tasks to archived file
+  const tasksPath = p('.taskpipe', 'tasks.json');
+  const archivePath = p('.taskpipe', 'archived_tasks.json');
+  const tasks: any[] = readJSON(tasksPath) || [];
+  const now = new Date().toISOString();
+  const active: any[] = [];
+  const done: any[] = [];
+  for (const t of tasks) {
+    if (t.status === 'done') {
+      done.push({ ...t, archivedAt: now });
+    } else {
+      active.push(t);
+    }
+  }
+  const archive: any[] = readJSON(archivePath) || [];
+  archive.push(...done);
+  fs.writeFileSync(tasksPath, JSON.stringify(active, null, 2));
+  fs.writeFileSync(archivePath, JSON.stringify(archive, null, 2));
+  res.json({ ok: true, archived: done.length });
+});
+
+// Get archived tasks
+app.get('/api/tasks/archive', async (req, res) => {
+  if (IS_CLOUD) {
+    const data = await readSyncedData(req, 'archived_tasks');
+    return res.json(data || []);
+  }
+  res.json(readJSON(p('.taskpipe', 'archived_tasks.json')) || []);
+});
+
 // Reorder tasks
 app.post('/api/tasks/reorder', async (req, res) => {
   const { ids } = req.body;

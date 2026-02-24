@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -234,6 +234,91 @@ function DroppableColumn({ id, label, count, color, collapsed, onToggle, childre
   );
 }
 
+function getISOWeek(d: Date): string {
+  const date = new Date(d.getTime());
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  const week1 = new Date(date.getFullYear(), 0, 4);
+  const weekNum = 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  return `${date.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+function ArchiveSection({ notify }: { notify: (m: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [archive, setArchive] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async () => {
+    if (loaded) return;
+    setLoading(true);
+    try {
+      const data = await api.fetchArchivedTasks();
+      setArchive(data);
+      setLoaded(true);
+    } catch { notify('Failed to load archive'); }
+    setLoading(false);
+  }, [loaded, notify]);
+
+  const toggle = () => {
+    if (!expanded) load();
+    setExpanded(e => !e);
+  };
+
+  // Group by week
+  const weeks = useMemo(() => {
+    const grouped = new Map<string, any[]>();
+    for (const task of archive) {
+      const week = task.archivedAt ? getISOWeek(new Date(task.archivedAt)) : 'Unknown';
+      if (!grouped.has(week)) grouped.set(week, []);
+      grouped.get(week)!.push(task);
+    }
+    return Array.from(grouped.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [archive]);
+
+  return (
+    <div className="mt-6">
+      <button onClick={toggle} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-1">
+        <span style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', display: 'inline-block', fontSize: '10px' }}>&#9654;</span>
+        <span className="font-semibold tracking-wide">Archive</span>
+        <span className="text-[11px] bg-white/[0.06] px-2 py-0.5 rounded-full font-mono">{loaded ? archive.length : '...'}</span>
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-4">
+          {loading && <p className="text-xs text-muted-foreground/50 px-1">Loading...</p>}
+          {!loading && weeks.length === 0 && <p className="text-xs text-muted-foreground/50 px-1">No archived tasks yet</p>}
+          {weeks.map(([week, weekTasks]) => (
+            <div key={week}>
+              <div className="flex items-center gap-2 px-1 mb-2">
+                <span className="text-xs font-semibold text-muted-foreground/70 tracking-wide">{week}</span>
+                <span className="text-[10px] text-muted-foreground/40 font-mono">{weekTasks.length} completed</span>
+              </div>
+              <div className="grid gap-1.5">
+                {weekTasks.map((task: any) => (
+                  <div key={task.id} className="rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground/60">{task.content}</span>
+                      <div className="flex gap-2 text-[10px] text-muted-foreground/40 font-mono shrink-0 ml-3">
+                        {task.completedAt && <span>{task.completedAt.slice(0, 10)}</span>}
+                        {task.estimate && <span>{task.estimate}m</span>}
+                      </div>
+                    </div>
+                    {task.tags?.length > 0 && (
+                      <div className="flex gap-1 mt-1">
+                        {task.tags.map((tag: string) => <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-muted-foreground/40">{tag}</span>)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]; onRefresh: () => void; notify: (m: string) => void; setState: (updater: React.SetStateAction<AppState>, overrides?: { id: string; field: string; value: string }[]) => void }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
@@ -460,6 +545,7 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
           ) : null}
         </DragOverlay>
       </DndContext>
+      <ArchiveSection notify={notify} />
     </div>
   );
 }

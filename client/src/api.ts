@@ -257,3 +257,10 @@ export const getHyperFokusTask = (hfTaskId: string): Promise<any> =>
 
 export const testHyperFokusConnection = (): Promise<{ ok: boolean; user?: string; error?: string }> =>
   apiFetch('/api/hyperfokus/test').then(json);
+
+// Task archive
+export const archiveDoneTasks = (): Promise<{ ok: boolean; archived: number }> =>
+  apiFetch('/api/tasks/archive', { method: 'POST' }).then(json);
+
+export const fetchArchivedTasks = (): Promise<any[]> =>
+  apiFetch('/api/tasks/archive').then(json);

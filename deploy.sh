@@ -1,7 +1,7 @@
 #!/bin/bash
 # Open Brain — Deploy to production server
 # Usage: ./deploy.sh <user@host>
-# Example: ./deploy.sh root@168.119.170.80
+# Example: ./deploy.sh root@46.225.119.95
 
 set -euo pipefail
 
