@@ -108,6 +108,25 @@ const sections = [
   },
 ];
 
+const syncSetup = {
+  title: 'Connect Your Local Agent',
+  icon: '\u26A1',
+  color: '#22C55E',
+  steps: [
+    { step: '1', text: 'Copy your API key from Settings > API Key' },
+    { step: '2', text: 'Open Terminal on your Mac and run:' },
+    { step: '3', text: 'The sync agent starts automatically and runs in the background' },
+  ],
+  command: 'curl -fsSL https://openbrain.space/install.sh | bash',
+  details: [
+    { label: 'What it does', text: 'Watches your local OpenClaw files and pushes changes to the cloud every 60 seconds' },
+    { label: 'Requirements', text: 'macOS with Node.js installed' },
+    { label: 'Check status', cmd: 'launchctl list | grep openbrain' },
+    { label: 'View logs', cmd: 'tail -f /tmp/openbrain-sync.log' },
+    { label: 'Uninstall', cmd: 'launchctl unload ~/Library/LaunchAgents/com.openbrain.sync.plist && rm -rf ~/.openbrain ~/Library/LaunchAgents/com.openbrain.sync.plist' },
+  ],
+};
+
 export function HelpDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
 
@@ -162,6 +181,52 @@ export function HelpDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               </div>
             </div>
           ))}
+          {/* ── Connect Your Local Agent ── */}
+          <div className="glass-card rounded-xl p-5 mt-2" style={{ border: `1px solid ${syncSetup.color}33` }}>
+            <h3 className="text-sm font-semibold mb-4 tracking-wide flex items-center gap-2">
+              <span className="w-1 h-4 rounded-full" style={{ background: syncSetup.color }} />
+              {syncSetup.title}
+            </h3>
+
+            <div className="space-y-3 mb-4">
+              {syncSetup.steps.map((s, i) => (
+                <div key={i} className="flex gap-3 text-sm items-start">
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5"
+                    style={{ background: `${syncSetup.color}22`, color: syncSetup.color }}>
+                    {s.step}
+                  </span>
+                  <span className="text-muted-foreground text-xs leading-relaxed pt-0.5">{s.text}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Install command */}
+            <div className="relative group">
+              <code className="block text-xs px-4 py-3 rounded-lg bg-white/[0.06] font-mono break-all" style={{ color: syncSetup.color }}>
+                {syncSetup.command}
+              </code>
+              <button
+                className="absolute top-1.5 right-1.5 text-[10px] px-2 py-1 rounded bg-white/[0.08] text-muted-foreground hover:text-foreground hover:bg-white/[0.12] transition-all opacity-0 group-hover:opacity-100"
+                onClick={() => { navigator.clipboard.writeText(syncSetup.command); }}
+              >
+                copy
+              </button>
+            </div>
+
+            {/* Details */}
+            <div className="mt-4 space-y-2">
+              {syncSetup.details.map((d, i) => (
+                <div key={i} className="text-xs">
+                  <span className="text-muted-foreground">{d.label}: </span>
+                  {d.cmd
+                    ? <code className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-white/[0.04]" style={{ color: palette.accent }}>{d.cmd}</code>
+                    : <span className="text-foreground/70">{d.text}</span>
+                  }
+                </div>
+              ))}
+            </div>
+          </div>
+
           <p className="text-center text-xs text-muted-foreground mt-10 font-mono">{'\u{1F9E0}'} Open Brain \u2014 powered by OpenClaw {'\u{1F47B}\u26A1'}</p>
         </div>
       </div>

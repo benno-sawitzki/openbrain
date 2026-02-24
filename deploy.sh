@@ -28,6 +28,7 @@ echo "[3/5] Syncing files..."
 rsync -avz --delete \
   --include='dist/***' \
   --include='public/***' \
+  --include='static/***' \
   --include='package.json' \
   --include='package-lock.json' \
   --include='ecosystem.config.cjs' \

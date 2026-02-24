@@ -33,7 +33,7 @@ try {
 } catch {}
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 const PORT = parseInt(process.env.MARKETING_HQ_PORT || '4000', 10);
 const SERVER_START = Date.now();
 
@@ -1656,9 +1656,10 @@ app.get('/api/memory/timeline', async (_req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/revenue', (_req, res) => {
+app.get('/api/revenue', async (_req, res) => {
   try {
-    const leads = readJSON(p('.leadpipe', 'leads.json')) || [];
+    const { crm } = await getProviders(_req);
+    const leads = crm ? await crm.list() : [];
     const stages = ['cold', 'warm', 'hot', 'proposal', 'won', 'lost'];
     const byStage: Record<string, { count: number; value: number }> = {};
     for (const s of stages) byStage[s] = { count: 0, value: 0 };
@@ -1952,7 +1953,7 @@ if (IS_CLOUD && SYNC_SECRET) {
       // Editable types: only ADD new items from local (never overwrite existing cloud items)
       const editableTypes = ['tasks', 'leads', 'content'] as const;
       // Read-only types: safe to overwrite (these are display-only in cloud UI)
-      const replaceTypes = ['activity', 'stats', 'config', 'inbox', 'agents_config'] as const;
+      const replaceTypes = ['activity', 'stats', 'config', 'inbox', 'agents_config', 'memory'] as const;
       let synced = 0;
 
       await withWriteLock(`sync:${workspaceId}`, async () => {
@@ -2050,6 +2051,77 @@ if (IS_CLOUD && SYNC_SECRET) {
   console.log('   Sync endpoint: POST /api/sync (secret-authenticated)');
 }
 
+// API-key-authenticated sync push (used by the install.sh sync agent)
+if (IS_CLOUD && supabase) {
+  app.post('/api/sync/push', async (req, res) => {
+    const user = await resolveUser(req);
+    if (!user) return res.status(401).json({ error: 'unauthorized' });
+
+    try {
+      const replaceTypes = ['activity', 'stats', 'config', 'inbox', 'agents_config', 'memory'] as const;
+      const editableTypes = ['tasks', 'leads', 'content'] as const;
+      let synced = 0;
+
+      await withWriteLock(`sync:${user.workspaceId}`, async () => {
+        for (const dt of editableTypes) {
+          if (req.body[dt] !== undefined && Array.isArray(req.body[dt])) {
+            const { data: row, error: readErr } = await supabase
+              .from('workspace_data')
+              .select('data')
+              .eq('workspace_id', user.workspaceId)
+              .eq('data_type', dt)
+              .single();
+
+            if (readErr && readErr.code !== 'PGRST116') continue;
+
+            const cloudItems: any[] = row?.data || [];
+            const cloudIds = new Set(cloudItems.map((item: any) => item.id).filter(Boolean));
+            const deletedIds = cloudDeletedIds.get(`${user.workspaceId}:${dt}`);
+
+            let added = 0;
+            const result = [...cloudItems];
+            for (const item of req.body[dt]) {
+              if (!item.id) continue;
+              if (cloudIds.has(item.id)) continue;
+              if (deletedIds?.has(item.id)) continue;
+              result.push(item);
+              added++;
+            }
+
+            if (added === 0) { synced++; continue; }
+
+            const { error: writeErr } = await supabase.from('workspace_data').upsert({
+              workspace_id: user.workspaceId,
+              data_type: dt,
+              data: result,
+              synced_at: new Date().toISOString(),
+            }, { onConflict: 'workspace_id,data_type' });
+
+            if (!writeErr) synced++;
+          }
+        }
+
+        for (const dt of replaceTypes) {
+          if (req.body[dt] !== undefined) {
+            const { error: writeErr } = await supabase.from('workspace_data').upsert({
+              workspace_id: user.workspaceId,
+              data_type: dt,
+              data: req.body[dt],
+              synced_at: new Date().toISOString(),
+            }, { onConflict: 'workspace_id,data_type' });
+            if (!writeErr) synced++;
+          }
+        }
+      });
+
+      recordSyncTimestamp(user.workspaceId);
+      res.json({ ok: true, synced });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+}
+
 // Local side: push local data to cloud periodically
 const SYNC_URL = process.env.SYNC_URL || '';         // e.g. http://46.225.119.95:4000
 const SYNC_WORKSPACE_ID = process.env.SYNC_WORKSPACE_ID || '';
@@ -2079,6 +2151,26 @@ if (!IS_CLOUD && SYNC_URL && SYNC_SECRET && SYNC_WORKSPACE_ID) {
         const alt = readJSON(p('stats.json'));
         if (alt) payload.stats = alt;
       }
+
+      // Include memory timeline files
+      try {
+        const memDir = path.join(WORKSPACE, 'memory');
+        const memEntries = fs.readdirSync(memDir).filter(f => f.endsWith('.md'));
+        const memFiles: any[] = [];
+        for (const f of memEntries) {
+          const fp = path.join(memDir, f);
+          const stat = fs.statSync(fp);
+          const content = fs.readFileSync(fp, 'utf-8');
+          memFiles.push({
+            name: f,
+            modified: stat.mtime.toISOString(),
+            preview: content.slice(0, 100),
+            lines: content.split('\n').length,
+          });
+        }
+        memFiles.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+        payload['memory'] = { files: memFiles };
+      } catch {}
 
       // Include agent configs and workspace files for cloud
       try {
@@ -2229,6 +2321,7 @@ app.delete('/api/account', async (req, res) => {
 });
 
 // Static
+app.use(express.static(path.join(__dirname, '..', 'static')));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.listen(PORT, '0.0.0.0', () => {
