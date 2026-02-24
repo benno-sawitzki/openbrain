@@ -359,7 +359,6 @@ export function TasksTab({ tasks, onRefresh, notify, setState }: { tasks: Task[]
       notify(`✅ Task moved to ${colLabel}`);
       try {
         await api.moveTask(taskId, targetColumn);
-        onRefresh();
       } catch {
         notify('❌ Failed to move task — reverting');
         onRefresh();

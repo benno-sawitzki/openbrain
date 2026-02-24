@@ -193,7 +193,7 @@ export function PipelineTab({ leads, onRefresh, notify, setState }: { leads: Lea
         leads: prev.leads.map(l => l.id === leadId ? { ...l, stage: targetStage } : l),
       }));
       notify(`\u2705 ${lead.name} moved to ${targetStage}`);
-      try { await api.moveLead(leadId, targetStage); onRefresh(); }
+      try { await api.moveLead(leadId, targetStage); }
       catch { notify('\u274C Failed \u2014 reverting'); onRefresh(); }
     }
   };
