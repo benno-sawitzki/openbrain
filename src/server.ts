@@ -2184,6 +2184,22 @@ app.get('/api/sync/status', async (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Save gateway URL (used by tunnel auto-update script) ─────────────
+app.post('/api/gateway/save', async (req, res) => {
+  if (!IS_CLOUD || !supabase) return res.status(400).json({ error: 'only available in cloud mode' });
+  const user = await resolveUser(req);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  const { gateway_url, gateway_token } = req.body;
+  if (!gateway_url) return res.status(400).json({ error: 'gateway_url required' });
+  const update: any = { gateway_url, updated_at: new Date().toISOString() };
+  if (gateway_token) update.gateway_token = gateway_token;
+  const { error } = await supabase.from('workspaces').update(update).eq('id', user.workspaceId);
+  if (error) return res.status(500).json({ error: error.message });
+  // Disconnect old cached connection so it reconnects with new URL
+  gatewayPool.disconnect(user.workspaceId);
+  res.json({ ok: true });
+});
+
 // ── Gateway reconnect ────────────────────────────────────────────────
 app.post('/api/gateway/reconnect', async (req, res) => {
   if (!IS_CLOUD) {
